@@ -2,7 +2,7 @@
 **Taiwan Civil Traffic Accident Judgment Prediction & Explainable Case Analysis System**
 
 - **研究範疇**：台灣地方法院第一審**民事車禍侵權損害賠償**判決預測與可解釋分析
-- **🌐 線上展示網站 雲端版**：**[https://urichao-traffic-verdict-predictor.hf.space](https://urichao-traffic-verdict-predictor.hf.space)**
+- **🌐 線上展示網站 雲端版**：**[https://urichao-traffic-verdict-predictor.hf.space]([https://urichao-traffic-verdict-predictor.hf.space](https://huggingface.co/spaces/Urichao/traffic-verdict-predictor))**
 
 ---
 
