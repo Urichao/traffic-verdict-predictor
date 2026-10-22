@@ -1,20 +1,8 @@
----
-title: 智慧司法判決預測與可解釋案例分析系統
-emoji: ⚖️
-colorFrom: blue
-colorTo: indigo
-sdk: docker
-app_port: 7860
-pinned: false
----
-
 # ⚖️ 智慧司法判決預測與可解釋案例分析系統
 **Taiwan Civil Traffic Accident Judgment Prediction & Explainable Case Analysis System**
 
-- **專題組別**：資工三B 專題 F 組（陳冠瑋、許祐愷、徐德晉、呂映彤、趙元寧）
-- **指導教授**：吳孟倫 教授
 - **研究範疇**：台灣地方法院第一審**民事車禍侵權損害賠償**判決預測與可解釋分析
-- **🌐 線上展示網站（24 小時雲端版）**：**[https://urichao-traffic-verdict-predictor.hf.space](https://urichao-traffic-verdict-predictor.hf.space)**
+- **🌐 線上展示網站 雲端版**：**[https://urichao-traffic-verdict-predictor.hf.space](https://urichao-traffic-verdict-predictor.hf.space)**
 
 ---
 
@@ -97,7 +85,7 @@ traffic-verdict-predictor/
 
 ---
 
-## 🚀 組員如何在本機下載並執行
+## 本機下載執行
 
 ```bash
 # 1. 下載專案並建立 Python 虛擬環境
