@@ -1,0 +1,12 @@
+{
+  "total_cases": 12174,
+  "train_cases": 9739,
+  "test_cases": 2435,
+  "lgbm_accuracy": 0.8353,
+  "lgbm_macro_f1": 0.6735,
+  "han_baseline_accuracy": 0.5774,
+  "han_baseline_macro_f1": 0.5168,
+  "award_ratio_mae": 0.193,
+  "fault_ratio_mae": 0.0346,
+  "consolation_mae": 147801.0
+}

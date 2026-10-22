@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>智慧司法判決預測與可解釋案例分析系統</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@600;900&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#edf0f3;--ink:#15233b;--mute:#5d6b80;--line:#c9d1db;--field:#f8f9fb;--card:#ffffff;
+  --lose:#a63d40;--lose-bg:#a63d4026;--win:#2f6690;--win-bg:#2f669026;--part:#8a6d1f;--part-bg:#8a6d1f22;
+  --serif:"Noto Serif TC","Songti TC",serif;--sans:"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --bg:#10192a;--ink:#e6ebf2;--mute:#93a1b6;--line:#2c3a52;--field:#16213a;--card:#142038;
+    --lose:#e07a7c;--lose-bg:#e07a7c33;--win:#7fb0dc;--win-bg:#7fb0dc33;--part:#d9b45a;--part-bg:#d9b45a28
+  }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.7 var(--sans)}
+main{max-width:1180px;margin:0 auto;padding:36px 20px 64px}
+header{display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px;margin-bottom:28px;border-bottom:1px solid var(--line);padding-bottom:16px}
+h1{font:900 clamp(24px,3.6vw,36px)/1.25 var(--serif);margin:0 0 4px}
+.sub{color:var(--mute);margin:0;font-size:15px}
+.badge{font-size:13px;padding:4px 10px;border:1px solid var(--line);border-radius:99px;color:var(--mute);background:var(--field)}
+.grid{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6.5fr);gap:36px;align-items:start}
+@media (max-width:880px){.grid{grid-template-columns:1fr}}
+h2{font:600 18px/1.4 var(--serif);margin:0 0 12px;padding-top:14px;border-top:2px solid var(--ink);display:flex;justify-content:space-between;align-items:center}
+h2 small{font:400 13px var(--sans);color:var(--mute)}
+textarea{
+  width:100%;min-height:210px;resize:vertical;border:1px solid var(--line);background:var(--field);color:var(--ink);
+  padding:12px 14px;font:inherit;line-height:2;border-radius:4px;
+  background-image:repeating-linear-gradient(transparent,transparent calc(2em - 1px),var(--line) calc(2em - 1px),var(--line) 2em);
+  background-origin:content-box
+}
+input[type="number"],select{
+  width:100%;border:1px solid var(--line);background:var(--field);color:var(--ink);
+  padding:7px 10px;font:15px var(--sans);border-radius:4px
+}
+textarea:focus-visible,input:focus-visible,select:focus-visible,button:focus-visible{outline:3px solid var(--win);outline-offset:2px}
+.panel{background:var(--field);border:1px solid var(--line);border-radius:4px;padding:14px 16px;margin-top:14px}
+.panel-title{font-weight:700;font-size:15px;margin:0 0 10px;display:flex;justify-content:space-between;align-items:center}
+.form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 12px}
+.form-grid-3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+@media (max-width:520px){.form-grid,.form-grid-3{grid-template-columns:1fr}}
+label.field{display:flex;flex-direction:column;gap:4px;font-size:13.5px;color:var(--mute)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.chip{
+  font:13px var(--sans);padding:4px 10px;border-radius:99px;border:1px solid var(--line);
+  background:var(--card);color:var(--ink);cursor:pointer;user-select:none
+}
+.chip.active{background:var(--win);color:#fff;border-color:var(--win)}
+.checks{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 10px;margin-top:10px;font-size:14px}
+.checks label{display:flex;align-items:center;gap:6px;cursor:pointer}
+.row{display:flex;gap:12px;align-items:center;margin-top:14px;flex-wrap:wrap}
+button.primary{font:500 16px var(--sans);background:var(--ink);color:var(--bg);border:0;border-radius:4px;padding:10px 24px;cursor:pointer}
+button.primary:disabled{opacity:.5;cursor:wait}
+button.link{font:14px var(--sans);background:none;color:var(--mute);border:0;padding:0;text-decoration:underline;cursor:pointer}
+.err{color:var(--lose);margin-top:10px;min-height:1.5em;font-size:14px}
+.empty{color:var(--mute);border:1px dashed var(--line);padding:40px 20px;border-radius:4px;text-align:center}
+section{margin-bottom:28px}
+.verdict{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap}
+.verdict b{font:900 48px/1.1 var(--serif)}
+.verdict span{color:var(--mute);font-size:15px}
+.bar{height:10px;margin:10px 0 8px;border-radius:2px;background:var(--line);overflow:hidden}
+.bar i{display:block;height:100%;transition:width .4s}
+.kpi-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:14px}
+@media (max-width:640px){.kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.kpi{background:var(--field);border:1px solid var(--line);border-radius:4px;padding:10px 12px}
+.kpi span{display:block;font-size:12.5px;color:var(--mute)}
+.kpi strong{font:700 20px/1.3 var(--serif);color:var(--ink)}
+.win{color:var(--win)}.lose{color:var(--lose)}.part{color:var(--part)}
+.llm-box{
+  background:var(--field);border:1px solid var(--line);border-left:4px solid var(--win);
+  border-radius:4px;padding:14px 16px;white-space:pre-wrap;font-size:15.5px;line-height:1.8
+}
+.llm-status{font-size:13px;color:var(--mute);margin-bottom:6px;display:flex;justify-content:space-between;align-items:center}
+.feat{display:grid;grid-template-columns:7.5em 1fr 4em;gap:10px;align-items:center;padding:4px 0;font-size:14.5px}
+.feat .track{position:relative;height:16px;background:linear-gradient(90deg,transparent 49.8%,var(--line) 49.8%,var(--line) 50.2%,transparent 50.2%)}
+.feat .track i{position:absolute;top:2px;bottom:2px;border-radius:2px}
+.feat code{font:13.5px var(--sans);text-align:right;color:var(--mute)}
+.axis{display:flex;justify-content:space-between;font-size:13px;color:var(--mute);padding:0 4em 0 8em}
+.marked{white-space:pre-wrap;border-left:3px solid var(--line);padding-left:14px;line-height:1.9}
+mark{color:inherit;padding:1px 4px;border-radius:3px}
+mark.win{background:var(--win-bg)}mark.lose{background:var(--lose-bg)}mark.att{background:var(--part-bg)}
+.case{display:grid;grid-template-columns:4.2em 1fr auto;gap:4px 12px;padding:12px 0;border-bottom:1px solid var(--line)}
+.case .sim{font:600 20px var(--serif)}
+.case .meta{font-size:13px;color:var(--mute);grid-column:2/4}
+.case p{margin:2px 0 0;grid-column:2/4;font-size:14.5px;color:var(--ink)}
+.tag{font-size:13.5px;font-weight:700}
+.note{font-size:13px;color:var(--mute);margin:8px 0 0}
+.tabs{display:inline-flex;gap:6px}
+.tab-btn{font:12.5px var(--sans);padding:2px 8px;border:1px solid var(--line);background:var(--field);color:var(--mute);border-radius:4px;cursor:pointer}
+.tab-btn.active{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+</style>
+</head>
+<body>
+<main>
+<header>
+  <div>
+    <h1>智慧司法判決預測與可解釋案例分析</h1>
+    <p class="sub">輸入台灣民事車禍案件事實與傷勢明細，由訓練模型（LightGBM + SHAP + HAN）比對歷年判決預測結果，並交由 Gemma-4-E4B 生成白話法律分析。</p>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <div class="badge" id="sys-badge">模型載入中…</div>
+    <button class="tab-btn" type="button" id="btn-cloud-key" title="設定 Google AI Studio 免費 Gemma API 金鑰（免開電腦即可由雲端 GPU 即時串流生成回答）">🔑 雲端 Gemma 設定</button>
+  </div>
+</header>
+
+<div class="grid">
+  <div>
+    <h2>
+      <span>案件事實描述</span>
+      <small>
+        範例：
+        <button class="link" type="button" data-sample="0">骨折部分勝訴</button>｜
+        <button class="link" type="button" data-sample="1">酒駕追撞全勝</button>｜
+        <button class="link" type="button" data-sample="2">和解敗訴</button>
+      </small>
+    </h2>
+    <textarea id="text" placeholder="請描述車禍發生經過、雙方違規情形、原告傷勢與請求項目金額……"></textarea>
+
+    <div class="panel">
+      <div class="panel-title">
+        <span>傷勢情況與關鍵事實（可選填，未填自動由內文擷取）</span>
+        <button class="link" type="button" id="clear-form">重設欄位</button>
+      </div>
+      <div class="form-grid">
+        <label class="field">
+          <span>傷勢嚴重程度</span>
+          <select id="injury_level">
+            <option value="">自動由案件內文判斷</option>
+            <option value="0">0 - 無人傷／僅車輛財損</option>
+            <option value="1">1 - 輕傷（擦挫傷、拉傷、扭傷）</option>
+            <option value="2">2 - 中度（骨折、脫臼、韌帶撕裂、腦震盪）</option>
+            <option value="3">3 - 重傷（顱內出血、重傷害、失能）</option>
+            <option value="4">4 - 死亡事故</option>
+          </select>
+        </label>
+        <div class="form-grid" style="gap:8px">
+          <label class="field">
+            <span>住院天數（日）</span>
+            <input type="number" id="hospital_days" min="0" placeholder="自動擷取">
+          </label>
+          <label class="field">
+            <span>是否接受手術</span>
+            <select id="surgery">
+              <option value="">自動判斷</option>
+              <option value="true">是（有開刀/手術）</option>
+              <option value="false">否</option>
+            </select>
+          </label>
+        </div>
+      </div>
+
+      <div style="margin-top:10px;font-size:13.5px;color:var(--mute)">點選常見傷勢部位（可複選）：</div>
+      <div class="chips" id="injury-chips">
+        <span class="chip" data-term="擦挫傷">擦挫傷</span>
+        <span class="chip" data-term="骨折">骨折</span>
+        <span class="chip" data-term="腦震盪">腦震盪</span>
+        <span class="chip" data-term="韌帶撕裂">韌帶撕裂</span>
+        <span class="chip" data-term="顱內出血">顱內出血</span>
+        <span class="chip" data-term="勞動能力減損">勞動能力減損</span>
+      </div>
+
+      <div class="checks">
+        <label><input type="checkbox" id="v_red_light"> 被告闖紅燈</label>
+        <label><input type="checkbox" id="v_drunk"> 被告酒後駕車</label>
+        <label><input type="checkbox" id="v_no_yield"> 被告未依規定禮讓</label>
+        <label><input type="checkbox" id="claims_contributory"> 被告抗辯我方與有過失/超速</label>
+        <label><input type="checkbox" id="has_criminal"> 具刑事過失傷害有罪判決</label>
+        <label><input type="checkbox" id="has_appraisal"> 具車鑑會肇事鑑定意見</label>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title"><span>各項請求金額明細（新臺幣／元，選填）</span></div>
+      <div class="form-grid-3">
+        <label class="field"><span>醫療費用</span><input type="number" id="claim_medical" min="0" step="1000" placeholder="自動擷取"></label>
+        <label class="field"><span>看護費用</span><input type="number" id="claim_care" min="0" step="1000" placeholder="自動擷取"></label>
+        <label class="field"><span>不能工作損失</span><input type="number" id="claim_work_loss" min="0" step="1000" placeholder="自動擷取"></label>
+        <label class="field"><span>車輛修復費</span><input type="number" id="claim_vehicle" min="0" step="1000" placeholder="自動擷取"></label>
+        <label class="field"><span>精神慰撫金</span><input type="number" id="claim_consolation" min="0" step="10000" placeholder="自動擷取"></label>
+        <label class="field"><span>請求總金額</span><input type="number" id="claim_amount" min="0" step="10000" placeholder="自動加總/擷取"></label>
+      </div>
+    </div>
+
+    <div class="row">
+      <button class="primary" id="go">開始預測與分析</button>
+    </div>
+    <div class="err" id="err" role="alert"></div>
+  </div>
+
+  <div id="out"><div class="empty">請在左側輸入或選擇範例案件，點擊「開始預測與分析」。</div></div>
+</div>
+</main>
+
+<script src="./engine.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmt=n=>Number(n||0).toLocaleString("zh-TW");
+let backendOnline=false;
+
+const SAMPLES=[
+  {
+    text:"原告騎乘普通重型機車沿直行車道行駛，被告駕駛自小客車左轉彎時未禮讓直行車先行，貿然左轉撞擊原告，致原告受有左遠端橈骨骨折、左膝挫傷及韌帶撕裂傷之傷害，住院治療共5日，並接受手術治療。案經刑事庭判處被告過失傷害罪刑確定，且經行車事故鑑定委員會鑑定認被告為肇事主因。原告因此支出醫療費用45,000元、看護費用24,000元、不能工作損失60,000元、車輛修理費21,000元，並請求精神慰撫金250,000元，共計新臺幣400,000元。被告則抗辯原告行經路口超速且未注意車前狀況，應負與有過失責任，且請求之精神慰撫金過高。",
+    injury_level:"2", hospital_days:5, surgery:"true", terms:["骨折","韌帶撕裂"],
+    checks:{v_no_yield:true,claims_contributory:true,has_criminal:true,has_appraisal:true},
+    amounts:{claim_medical:45000,claim_care:24000,claim_work_loss:60000,claim_vehicle:21000,claim_consolation:250000,claim_amount:400000}
+  },
+  {
+    text:"被告駕駛自用小客車酒後駕車（吐氣酒精濃度達每公升0.58毫克），且闖紅燈自後追撞停等紅燈之原告機車，致原告受有右側鎖骨骨折、腦震盪及全身多處擦挫傷，住院治療共7日並接受手術。案經本院刑事庭判處被告過失傷害罪確定。原告提出診斷證明書及單據，請求醫療費用62,000元、看護費用30,000元、不能工作損失78,000元、車輛修理費30,000元及精神慰撫金200,000元，共計新臺幣400,000元。被告對肇事責任不爭執。",
+    injury_level:"2", hospital_days:7, surgery:"true", terms:["骨折","腦震盪","擦挫傷"],
+    checks:{v_red_light:true,v_drunk:true,has_criminal:true},
+    amounts:{claim_medical:62000,claim_care:30000,claim_work_loss:78000,claim_vehicle:30000,claim_consolation:200000,claim_amount:400000}
+  },
+  {
+    text:"原告主張被告駕駛自小客車於路口與原告機車發生擦撞，致原告受有手部擦挫傷及車輛損害，請求醫療費用8,000元、車輛修理費22,000元及精神慰撫金60,000元，共計90,000元。被告抗辯：兩造已於事故當日達成和解，被告已當場給付已賠償和解金30,000元，原告並簽立和解書拋棄其餘民事請求權，且原告亦已領取強制汽車責任保險理賠金。",
+    injury_level:"1", hospital_days:0, surgery:"false", terms:["擦挫傷"],
+    checks:{},
+    amounts:{claim_medical:8000,claim_care:0,claim_work_loss:0,claim_vehicle:22000,claim_consolation:60000,claim_amount:90000}
+  }
+];
+
+// 載入系統狀態（自動偵測本地 FastAPI 後端或雲端靜態推論引擎）
+fetch("/api/status").then(r=>{if(!r.ok)throw new Error(r.status);return r.json();}).then(st=>{
+  backendOnline=true;
+  const acc=st.metrics?.lgbm_accuracy?`｜測試準確率 ${(st.metrics.lgbm_accuracy*100).toFixed(1)}%`:"";
+  $("sys-badge").textContent=`判決庫 ${st.indexed_cases} 筆${acc}｜LLM: ${st.llm_model}`;
+}).catch(async()=>{
+  backendOnline=false;
+  try{
+    const {bundle,cases}=await window.StaticVerdictEngine.ensureLoaded();
+    const acc=bundle.metrics?.lgbm_accuracy?`｜測試準確率 ${(bundle.metrics.lgbm_accuracy*100).toFixed(1)}%`:"";
+    const hasKey=Boolean(window.StaticVerdictEngine.getCloudApiKey());
+    $("sys-badge").textContent=`判決庫 ${cases.length} 筆${acc}｜${hasKey?"雲端 Gemma GPU 已連線":"雲端線上版"}`;
+  }catch(_){
+    $("sys-badge").textContent="模型載入失敗";
+  }
+});
+
+$("btn-cloud-key").onclick=()=>{
+  const cur=window.localStorage.getItem("CLOUD_GEMMA_KEY")||"";
+  const k=window.prompt("請貼上 Google AI Studio 免費 API Key（AIza... 開頭，前往 https://aistudio.google.com/apikey 免費取得）：",cur);
+  if(k===null) return;
+  if(k.trim()){
+    window.localStorage.setItem("CLOUD_GEMMA_KEY",k.trim());
+    alert("已儲存雲端 Gemma API 金鑰！現在點擊「開始預測與分析」將直接由雲端 GPU 串流生成回答。");
+  }else{
+    window.localStorage.removeItem("CLOUD_GEMMA_KEY");
+  }
+  location.reload();
+};
+
+// 傷勢膠囊切換
+document.querySelectorAll("#injury-chips .chip").forEach(el=>{
+  el.onclick=()=>el.classList.toggle("active");
+});
+
+function clearForm(){
+  ["injury_level","hospital_days","surgery","claim_medical","claim_care","claim_work_loss","claim_vehicle","claim_consolation","claim_amount"].forEach(id=>$(id).value="");
+  ["v_red_light","v_drunk","v_no_yield","claims_contributory","has_criminal","has_appraisal"].forEach(id=>$(id).checked=false);
+  document.querySelectorAll("#injury-chips .chip").forEach(c=>c.classList.remove("active"));
+}
+$("clear-form").onclick=clearForm;
+
+document.querySelectorAll("[data-sample]").forEach(btn=>{
+  btn.onclick=()=>{
+    const s=SAMPLES[Number(btn.dataset.sample)];
+    clearForm();
+    $("text").value=s.text;
+    $("injury_level").value=s.injury_level;
+    $("hospital_days").value=s.hospital_days;
+    $("surgery").value=s.surgery;
+    document.querySelectorAll("#injury-chips .chip").forEach(c=>{
+      if(s.terms.includes(c.dataset.term)) c.classList.add("active");
+    });
+    Object.entries(s.checks).forEach(([k,v])=>{if($(k)) $(k).checked=v;});
+    Object.entries(s.amounts).forEach(([k,v])=>{if($(k)&&v) $(k).value=v;});
+  };
+});
+
+function buildPayload(){
+  const text=$("text").value.trim();
+  const payload={text};
+  const intVal=id=>{const v=$(id).value.trim(); return v===""?null:Number(v);};
+  payload.injury_level=intVal("injury_level");
+  payload.hospital_days=intVal("hospital_days");
+  if($("surgery").value!=="") payload.surgery=$("surgery").value==="true";
+  const terms=[...document.querySelectorAll("#injury-chips .chip.active")].map(c=>c.dataset.term);
+  if(terms.length) payload.injury_terms=terms;
+  ["v_red_light","v_drunk","v_no_yield","claims_contributory","has_criminal","has_appraisal"].forEach(id=>{
+    if($(id).checked) payload[id]=true;
+  });
+  ["claim_medical","claim_care","claim_work_loss","claim_vehicle","claim_consolation","claim_amount"].forEach(id=>{
+    const v=intVal(id); if(v!==null) payload[id]=v;
+  });
+  return payload;
+}
+
+function highlightKeywords(text,fs){
+  const valid=fs.filter(f=>f.term && text.includes(f.term));
+  if(!valid.length) return esc(text);
+  const map=Object.fromEntries(valid.map(f=>[f.term,f.effect]));
+  const re=new RegExp("("+valid.map(f=>f.term.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")).join("|")+")","g");
+  return text.split(re).map((p,i)=>i%2&&p in map?`<mark class="${map[p]>0?"win":"lose"}">${esc(p)}</mark>`:esc(p)).join("");
+}
+
+function renderAttentionSentences(sents){
+  if(!sents||!sents.length) return "";
+  const maxScore=Math.max(...sents.map(s=>s.score),0.01);
+  return sents.map(s=>{
+    const alpha=Math.min(0.55,Math.max(0.06,(s.score/maxScore)*0.45));
+    return `<span style="background:rgba(47,102,144,${alpha.toFixed(2)});padding:2px 4px;border-radius:3px;margin-right:4px" title="句子 Attention 權重 ${(s.score*100).toFixed(1)}%">${esc(s.sentence)}。<sup style="font-size:11px;color:var(--mute)">${(s.score*100).toFixed(0)}%</sup></span>`;
+  }).join("");
+}
+
+const VCLS={"原告勝訴":"win","部分勝訴":"part","原告敗訴":"lose"};
+let lastResponse=null, lastText="";
+
+function render(r,text){
+  lastResponse=r; lastText=text;
+  const pct=n=>Math.round(n*100), vc=VCLS[r.label]||"part";
+  const rows=r.factors.map(f=>{
+    const w=f.weight*50, pos=f.effect>0;
+    const label=f.name||f.term;
+    return `<div class="feat"><span title="${esc(f.term)}">${esc(label)}</span><div class="track"><i style="${pos?"left:50%":"right:50%"};width:${w}%;background:var(--${pos?"win":"lose"})"></i></div><code>${pos?"+":"−"}${f.weight.toFixed(2)}</code></div>`;
+  }).join("");
+
+  const cases=r.similar.map(c=>`
+    <div class="case">
+      <span class="sim">${pct(c.similarity)}%</span>
+      <span><b>${esc(c.case_id)}</b></span>
+      <span class="tag ${VCLS[c.verdict]||"part"}">${esc(c.verdict)}</span>
+      <div class="meta">請求 ${fmt(c.claim_amount)} 元 → 判准 <b>${fmt(c.awarded_amount)}</b> 元｜原告過失 ${pct(c.plaintiff_fault)}%</div>
+      <p>${esc(c.summary)}</p>
+    </div>`).join("");
+
+  $("out").innerHTML=`
+  <section>
+    <h2><span>訓練模型預測結果</span><small>LightGBM 分類與金額迴歸模型</small></h2>
+    <div class="verdict">
+      <b class="${vc}">${esc(r.label)}</b>
+      <span>模型信心度 ${pct(r.confidence)}%（勝訴 ${pct(r.class_probs["原告勝訴"]||0)}% ／ 部分勝訴 ${pct(r.class_probs["部分勝訴"]||0)}% ／ 敗訴 ${pct(r.class_probs["原告敗訴"]||0)}%）</span>
+    </div>
+    <div class="bar" role="img"><i style="width:${pct(r.confidence)}%;background:var(--${vc})"></i></div>
+    <div class="kpi-grid">
+      <div class="kpi"><span>預估判賠總金額</span><strong>$${fmt(r.predicted_award)}</strong></div>
+      <div class="kpi"><span>預估判賠占請求比</span><strong>${pct(r.predicted_ratio)}%</strong></div>
+      <div class="kpi"><span>預估原告過失比例</span><strong>${pct(r.predicted_fault)}%</strong></div>
+      <div class="kpi"><span>預估核定慰撫金</span><strong>$${fmt(r.predicted_consolation)}</strong></div>
+    </div>
+    <p class="note">系統辨識傷勢：${esc(r.extracted.injury_level_name)}（${(r.extracted.injury_terms||[]).join("、")||"無特定詞"}）｜請求總額：$${fmt(r.extracted.claim_amount)} 元</p>
+  </section>
+
+  <section>
+    <h2>
+      <span>Gemma-4-E4B 智慧判決分析說明</span>
+      <small id="llm-state">正在呼叫 ${esc(r.llm_model)} 生成分析…</small>
+    </h2>
+    <div class="llm-box" id="llm-out">${esc(r.reason)}</div>
+  </section>
+
+  <section>
+    <h2><span>影響因素（SHAP 可解釋分析）</span><small>TreeSHAP 特徵貢獻度</small></h2>
+    ${r.factors.length?`<div class="axis"><span class="lose">← 不利原告（酌減/過失相抵）</span><span class="win">有利原告（提高判賠） →</span></div>${rows}`:`<p class="note">未偵測到顯著影響因子。</p>`}
+  </section>
+
+  <section>
+    <h2>
+      <span>原文標註與句子重要度</span>
+      <span class="tabs">
+        <button class="tab-btn active" type="button" id="tab-kw">關鍵詞標註</button>
+        <button class="tab-btn" type="button" id="tab-att">HAN 句子 Attention 權重</button>
+      </span>
+    </h2>
+    <div class="marked" id="marked-box">${highlightKeywords(text,r.factors)}</div>
+    <p class="note" id="marked-note">藍底代表有利原告之事實關鍵詞，紅底代表不利原告（過失相抵／酌減）之關鍵詞。</p>
+  </section>
+
+  <section>
+    <h2><span>相似歷史判決比照</span><small>混合語意與傷勢結構檢索 Top 5</small></h2>
+    ${cases}
+  </section>
+  <p class="note">結構化預測與檢索耗時 ${(r.elapsed_ms/1000).toFixed(2)} 秒　｜　模型測試集準確率：LightGBM ${((r.metrics?.lgbm_accuracy||0)*100).toFixed(1)}% vs. 參考專案 HAN ${((r.metrics?.han_baseline_accuracy||0)*100).toFixed(1)}%</p>`;
+
+  $("tab-kw").onclick=()=>{
+    $("tab-kw").classList.add("active"); $("tab-att").classList.remove("active");
+    $("marked-box").innerHTML=highlightKeywords(lastText,lastResponse.factors);
+    $("marked-note").textContent="藍底代表有利原告之事實關鍵詞，紅底代表不利原告（過失相抵／酌減）之關鍵詞。";
+  };
+  $("tab-att").onclick=()=>{
+    $("tab-att").classList.add("active"); $("tab-kw").classList.remove("active");
+    $("marked-box").innerHTML=renderAttentionSentences(lastResponse.sentence_scores);
+    $("marked-note").textContent="參考 JudgmentPrediction 雙層 Attention 架構：顏色愈深代表該句對判決結果影響權重愈高（各句權重總和 = 100%）。";
+  };
+}
+
+async function streamLlmExplanation(payload){
+  const box=$("llm-out"), state=$("llm-state");
+  if(!box) return;
+  try{
+    const res=await fetch("/api/explain/stream",{
+      method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)
+    });
+    if(!res.ok || !res.body) throw new Error(res.status);
+    const reader=res.body.getReader();
+    const dec=new TextDecoder();
+    let buf="", started=false;
+    while(true){
+      const {value,done}=await reader.read();
+      if(done) break;
+      buf+=dec.decode(value,{stream:true});
+      const lines=buf.split("\n\n");
+      buf=lines.pop()||"";
+      for(const block of lines){
+        if(!block.startsWith("data:")) continue;
+        const raw=block.slice(5).trim();
+        if(raw==="[DONE]"){
+          state.textContent="Gemma-4-E4B 分析完成";
+          return;
+        }
+        const msg=JSON.parse(raw);
+        if(msg.error){
+          state.textContent="語言模型未連線（顯示結構化摘要）";
+          return;
+        }
+        if(msg.delta){
+          if(!started){ box.textContent=""; started=true; }
+          box.textContent+=msg.delta;
+        }
+      }
+    }
+    state.textContent="Gemma-4-E4B 分析完成";
+  }catch(e){
+    if(state) state.textContent="語言模型未啟動，目前顯示訓練模型摘要";
+  }
+}
+
+$("go").onclick=async()=>{
+  const payload=buildPayload();
+  $("err").textContent="";
+  if(!payload.text){$("err").textContent="請先輸入案件事實描述（或點擊上方範例按鈕）。";return;}
+  $("go").disabled=true; $("go").textContent="模型計算中…";
+  try{
+    if(backendOnline){
+      const res=await fetch("/api/predict",{
+        method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)
+      });
+      if(!res.ok) throw new Error(res.status);
+      const data=await res.json();
+      render(data,payload.text);
+      streamLlmExplanation(payload);
+    }else{
+      const data=await window.StaticVerdictEngine.predictLocal(payload);
+      render(data,payload.text);
+      const box=$("llm-out"), st=$("llm-state");
+      let firstChunk=true;
+      await window.StaticVerdictEngine.streamCloudGemma(payload.text,data,{
+        onStart:(m)=>{if(st) st.textContent=`正在由雲端 GPU (${m}) 即時串流生成分析…`;},
+        onDelta:(piece)=>{
+          if(firstChunk && box){box.textContent=""; firstChunk=false;}
+          if(box) box.textContent+=piece;
+        },
+        onDone:(m)=>{if(st) st.textContent=`雲端 GPU (${m}) 分析完成`;},
+        onNoKey:()=>{if(st) st.textContent="雲端結構化法律分析報告（點右上角「🔑 雲端 Gemma 設定」可啟用 GPU 串流）";},
+        onError:(msg)=>{if(st) st.textContent=msg;}
+      });
+    }
+  }catch(e){
+    try{
+      const data=await window.StaticVerdictEngine.predictLocal(payload);
+      render(data,payload.text);
+      const box=$("llm-out"), st=$("llm-state");
+      let firstChunk=true;
+      await window.StaticVerdictEngine.streamCloudGemma(payload.text,data,{
+        onStart:(m)=>{if(st) st.textContent=`正在由雲端 GPU (${m}) 即時串流生成分析…`;},
+        onDelta:(piece)=>{
+          if(firstChunk && box){box.textContent=""; firstChunk=false;}
+          if(box) box.textContent+=piece;
+        },
+        onDone:(m)=>{if(st) st.textContent=`雲端 GPU (${m}) 分析完成`;},
+        onNoKey:()=>{if(st) st.textContent="雲端結構化法律分析報告";},
+        onError:(msg)=>{if(st) st.textContent=msg;}
+      });
+    }catch(err){
+      $("err").textContent="無法取得分析結果：" + err;
+    }
+  }finally{
+    $("go").disabled=false; $("go").textContent="開始預測與分析";
+  }
+};
+</script>
+</body>
+</html>
