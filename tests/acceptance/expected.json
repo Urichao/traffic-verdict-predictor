@@ -1,0 +1,262 @@
+{
+  "synthetic": true,
+  "annotation_version": 1,
+  "cases": [
+    {
+      "id": "case_01",
+      "file": "cases/case_01.txt",
+      "kind": "口語",
+      "title": "扣薪",
+      "expected": {
+        "claim_work_loss": 35000
+      }
+    },
+    {
+      "id": "case_02",
+      "file": "cases/case_02.txt",
+      "kind": "口語",
+      "title": "少賺",
+      "expected": {
+        "claim_work_loss": 20000
+      }
+    },
+    {
+      "id": "case_03",
+      "file": "cases/case_03.txt",
+      "kind": "口語",
+      "title": "就醫車資",
+      "expected": {
+        "claim_transport": 2000
+      }
+    },
+    {
+      "id": "case_04",
+      "file": "cases/case_04.txt",
+      "kind": "口語",
+      "title": "修車明細",
+      "expected": {
+        "claim_vehicle": 10000
+      }
+    },
+    {
+      "id": "case_05",
+      "file": "cases/case_05.txt",
+      "kind": "口語",
+      "title": "修車合計",
+      "expected": {
+        "claim_vehicle": 10000
+      }
+    },
+    {
+      "id": "case_06",
+      "file": "cases/case_06.txt",
+      "kind": "口語",
+      "title": "明細與醫療",
+      "expected": {
+        "claim_vehicle": 10000,
+        "claim_medical": 5000,
+        "claim_amount": 15000
+      }
+    },
+    {
+      "id": "case_07",
+      "file": "cases/case_07.txt",
+      "kind": "口語",
+      "title": "自身背景",
+      "expected": {
+        "plaintiff_education": "大學",
+        "plaintiff_occupation": "工程師",
+        "plaintiff_monthly_income": 50000,
+        "defendant_monthly_income": null
+      }
+    },
+    {
+      "id": "case_08",
+      "file": "cases/case_08.txt",
+      "kind": "口語",
+      "title": "醫囑月份",
+      "expected": {
+        "plaintiff_rest_months": 2
+      }
+    },
+    {
+      "id": "case_09",
+      "file": "cases/case_09.txt",
+      "kind": "口語",
+      "title": "半個月",
+      "expected": {
+        "plaintiff_rest_months": 0.5
+      }
+    },
+    {
+      "id": "case_10",
+      "file": "cases/case_10.txt",
+      "kind": "口語",
+      "title": "缺值",
+      "expected": {
+        "injury_level": 1,
+        "plaintiff_monthly_income": null,
+        "plaintiff_rest_months": null,
+        "plaintiff_labor_loss_ratio": null
+      }
+    },
+    {
+      "id": "case_11",
+      "file": "cases/case_11.txt",
+      "kind": "口語",
+      "title": "醫囑否定",
+      "expected": {
+        "plaintiff_rest_months": null
+      }
+    },
+    {
+      "id": "case_12",
+      "file": "cases/case_12.txt",
+      "kind": "口語",
+      "title": "費用否定",
+      "expected": {
+        "claim_work_loss": 0,
+        "claim_medical": 5000
+      }
+    },
+    {
+      "id": "case_13",
+      "file": "cases/case_13.txt",
+      "kind": "口語",
+      "title": "未知車資",
+      "expected": {
+        "claim_transport": 0,
+        "claim_medical": 5000
+      },
+      "note": "現有費用欄位以0表示未取得金額，不代表確定沒有支出。"
+    },
+    {
+      "id": "case_14",
+      "file": "cases/case_14.txt",
+      "kind": "口語",
+      "title": "口語學歷",
+      "expected": {
+        "plaintiff_education": "大學",
+        "plaintiff_occupation": "工程師",
+        "plaintiff_monthly_income": 50000
+      }
+    },
+    {
+      "id": "case_15",
+      "file": "cases/case_15.txt",
+      "kind": "口語",
+      "title": "一般職業",
+      "expected": {
+        "plaintiff_occupation": "設計師",
+        "plaintiff_monthly_income": 40000
+      }
+    },
+    {
+      "id": "case_16",
+      "file": "cases/case_16.txt",
+      "kind": "起訴狀",
+      "title": "兩造背景",
+      "expected": {
+        "plaintiff_education": "大學",
+        "defendant_education": "高中",
+        "plaintiff_occupation": "工程師",
+        "defendant_occupation": "司機",
+        "plaintiff_monthly_income": 50000,
+        "defendant_monthly_income": 40000
+      }
+    },
+    {
+      "id": "case_17",
+      "file": "cases/case_17.txt",
+      "kind": "起訴狀",
+      "title": "減損比例",
+      "expected": {
+        "plaintiff_rest_months": 2,
+        "plaintiff_labor_loss_ratio": 0.1
+      }
+    },
+    {
+      "id": "case_18",
+      "file": "cases/case_18.txt",
+      "kind": "起訴狀",
+      "title": "被告傷勢",
+      "expected": {
+        "plaintiff_rest_months": null,
+        "plaintiff_labor_loss_ratio": null
+      }
+    },
+    {
+      "id": "case_19",
+      "file": "cases/case_19.txt",
+      "kind": "起訴狀",
+      "title": "親屬收入",
+      "expected": {
+        "plaintiff_monthly_income": null
+      }
+    },
+    {
+      "id": "case_20",
+      "file": "cases/case_20.txt",
+      "kind": "起訴狀",
+      "title": "收入衝突",
+      "expected": {
+        "plaintiff_monthly_income": null
+      }
+    },
+    {
+      "id": "case_21",
+      "file": "cases/case_21.txt",
+      "kind": "起訴狀",
+      "title": "年薪不換算",
+      "expected": {
+        "plaintiff_monthly_income": null
+      }
+    },
+    {
+      "id": "case_22",
+      "file": "cases/case_22.txt",
+      "kind": "起訴狀",
+      "title": "醫囑天數",
+      "expected": {
+        "plaintiff_rest_months": null
+      },
+      "note": "規格約定：日數不直接換算月數，月份欄位保留缺值。"
+    },
+    {
+      "id": "case_23",
+      "file": "cases/case_23.txt",
+      "kind": "起訴狀",
+      "title": "請求非判准",
+      "expected": {
+        "claim_consolation": 100000
+      },
+      "expected_awarded_consolation": null
+    },
+    {
+      "id": "case_24",
+      "file": "cases/case_24.txt",
+      "kind": "起訴狀",
+      "title": "傷勢與請求",
+      "expected": {
+        "injury_level": 2,
+        "hospital_days": 5,
+        "surgery": 1,
+        "claim_medical": 50000,
+        "claim_care": 20000,
+        "claim_consolation": 100000,
+        "claim_amount": 170000
+      }
+    },
+    {
+      "id": "case_25",
+      "file": "cases/case_25.txt",
+      "kind": "起訴狀",
+      "title": "跨句主詞",
+      "expected": {
+        "plaintiff_education": "大學",
+        "plaintiff_monthly_income": 50000
+      },
+      "note": "同一原告、沒有切換當事人的連續描述，人工標註為原告收入；此為跨句能力挑戰。"
+    }
+  ]
+}

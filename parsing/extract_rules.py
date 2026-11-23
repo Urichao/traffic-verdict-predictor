@@ -50,8 +50,8 @@ CLAIM_ITEMS = {
     "claim_medical": ("醫療費用", "醫藥費", "醫療費"),
     "claim_future_medical": ("將來醫療", "後續醫療", "未來醫療"),
     "claim_care": ("看護費", "看護費用", "照護費"),
-    "claim_transport": ("交通費", "就醫交通"),
-    "claim_work_loss": ("不能工作損失", "工作損失", "薪資損失", "不能工作之損失", "營業損失"),
+    "claim_transport": ("交通費", "就醫交通", "計程車資", "計程車費", "計程車車資"),
+    "claim_work_loss": ("不能工作損失", "工作損失", "薪資損失", "不能工作之損失", "營業損失", "請假扣薪", "被扣薪", "扣薪", "少賺"),
     "claim_labor_loss": ("勞動能力減損", "減少勞動能力", "勞動能力之損失"),
     "claim_vehicle": ("車輛修理費", "修車費", "車損", "維修費", "修復費用", "車輛損害", "財物損失"),
     "claim_funeral": ("殯葬費", "喪葬費"),
@@ -71,19 +71,185 @@ def _has(text: str, kws) -> bool:
 
 
 def _amount_after(text: str, kws, window: int = 40) -> int | None:
-    """找關鍵字後 window 字內第一個金額（取全文中最早出現者）。"""
-    hits = []
-    for k in kws:
-        for m in re.finditer(re.escape(k), text):
-            am = AMOUNT_RE.search(text[m.end(): m.end() + window])
-            v = cn2int(am.group(1)) if am else None
-            if v:
-                hits.append((m.start(), v))
-                break
-    return min(hits)[1] if hits else None
+    """同一子句內找項目金額；不跨項目或否定／未知敘述取值。"""
+    other_kws = [word for words in CLAIM_ITEMS.values() for word in words
+                 if word not in kws]
+    # 保留金額千分位中的逗號與小數點。
+    clauses = re.split(r'[。；;\n，、]|,(?!\d{3}(?:\D|$))', text or '')
+    for clause in clauses:
+        matches = sorted(
+            (match for word in kws for match in re.finditer(re.escape(word), clause)),
+            key=lambda match: (match.start(), -len(match.group())),
+        )
+        for match in matches:
+            before = clause[:match.start()]
+            if re.search(r'沒有|並無|未有|無須|不需|未請求|不請求|否認|未發生', before):
+                continue
+            tail = clause[match.end():match.end() + window]
+            boundaries = [tail.find(word) for word in other_kws if word in tail]
+            if boundaries:
+                tail = tail[:min(boundaries)]
+            amount = AMOUNT_RE.search(tail)
+            if not amount:
+                continue
+            context = tail[:amount.start()]
+            if re.search(r'不詳|不明|不清楚|未知|未確定|待確認|沒有|不需|無須|不請求|未支出', context):
+                continue
+            value = cn2int(amount.group(1))
+            if value is not None:
+                return value
+    return None
+
+
+def _continue_profile_subject(text: str) -> str:
+    """僅將緊接單一當事人背景句的月薪句補上主詞。
+
+    換行、分號、其他人物、爭議或插入其他敘述均中止延續。
+    只延續一次，不將整段文字都套用前一位當事人。
+    """
+    pieces = re.split(r'([。；;\n])', text)
+    previous_role = None
+    for i in range(0, len(pieces), 2):
+        sentence = pieces[i]
+        compact = re.sub(r'\s+', '', sentence)
+        subjects = re.findall(r'原告|被告|(?<![\u4e00-\u9fff])我', compact)
+        if not subjects and previous_role and re.match(r'^(?:每月收入|每月薪資|月收入|月薪)', compact):
+            pieces[i] = previous_role + sentence
+            previous_role = None
+            continue
+        previous_role = None
+        if len(subjects) != 1:
+            continue
+        if re.search(r'父|母|妻|丈夫|兒子|女兒|配偶|律師|代理人|朋友|證人|主張|抗辯|否認|認為|表示|稱|「|」|"', compact):
+            continue
+        if not re.search(r'畢業|肄業|學歷|教育程度|從事|擔任|職業|月收入|月薪', compact):
+            continue
+        if i + 1 < len(pieces) and pieces[i + 1] == '。':
+            previous_role = subjects[0]
+    return ''.join(pieces)
 
 
 # ================================================================ 特徵（案情事實）
+def extract_vehicle_amount(text: str) -> int | None:
+    """擷取同一句的修車明細；明確修車總額優先，避免重複加總。
+
+    跨句明細、多筆報價與折舊計算仍需另外處理。
+    """
+    amount = rf"(?:新[臺台]幣)?\s*([{NUM_CHARS}.．]+)\s*元"
+    connector = r"\s*(?:為|共|計|花了|花費)?\s*[:：]?\s*"
+    part_pattern = re.compile(
+        rf"(?:零件(?:費用|費)?|工資|工錢|工費){connector}{amount}"
+    )
+    total_pattern = re.compile(
+        rf"(?:車輛修理費|修車費|維修費|修復費用|修車)"
+        rf"\s*(?:共計|合計|總計|總共)?{connector}{amount}"
+    )
+    other_items = tuple(
+        kw for field, keywords in CLAIM_ITEMS.items()
+        if field != "claim_vehicle" for kw in keywords
+    )
+    for sentence in re.split(r"[。；;\n]", text or ""):
+        repair = re.search(r"修車|修理|維修|修復|車損", sentence)
+        if not repair:
+            continue
+        segment = sentence[repair.start():]
+        # 停在下一個賠償項目，避免把整案合計當成修車總額。
+        boundaries = [segment.find(kw) for kw in other_items if kw in segment]
+        if boundaries:
+            segment = segment[:min(boundaries)]
+        explicit = total_pattern.search(segment)
+        if explicit:
+            value = cn2int(explicit.group(1))
+            if value is not None:
+                return value
+        matches = list(part_pattern.finditer(segment))
+        values = [cn2int(match.group(1)) for match in matches]
+        if not values or any(value is None for value in values):
+            continue
+        # 只有明細後緊接的合計才視為修車合計。
+        total = re.match(
+            rf"[\s，,、]*(?:共計|合計|總計|總共)\s*{amount}",
+            segment[matches[-1].end():],
+        )
+        if total:
+            value = cn2int(total.group(1))
+            if value is not None:
+                return value
+        return sum(values)
+    return None
+
+
+# 深度欄位暫不加入 NUMERIC_FEATURES：需驗證資料並重訓後才供模型使用。
+DEEP_FEATURE_FIELDS = (
+    'plaintiff_education', 'defendant_education',
+    'plaintiff_occupation', 'defendant_occupation',
+    'plaintiff_monthly_income', 'defendant_monthly_income',
+    'plaintiff_rest_months', 'plaintiff_labor_loss_ratio',
+)
+
+
+def extract_deep_features(text: str) -> dict[str, Any]:
+    """保守擷取明確單一當事人的資料。
+
+    原告／被告或第一人稱「我」為主詞；僅延續緊接背景句的月薪句。
+    職業保留原文名稱；不推論薪資、學歷或失能程度。
+    多人、否定、爭議、範圍或衝突數值留為 None。
+    休養僅接受醫囑且以月表示，不自行將天數換成月份。
+    """
+    from parsing.numbers import normalize_width
+
+    values = {key: set() for key in DEEP_FEATURE_FIELDS}
+    t = _continue_profile_subject(normalize_width(text or ''))
+    # 目前的單人欄位無法表達多人分配，整段保守棄權。
+    if re.search(r'原告(?:等|二人|兩人|三人)|被告(?:等|二人|兩人|三人)|兩造均|分別|各自', t):
+        return {key: None for key in DEEP_FEATURE_FIELDS}
+
+    number = rf'[{NUM_CHARS}.]+'
+    edu = r'博士|碩士|研究所|大學|大專|專科|高中|高職|國中|國小|小學'
+    jobs = r'設計師|工程師|計程車司機|貨車司機|司機|教師|老師|護理師|護士|醫師|工人|服務生|店員|廚師|公務員|學生|無業|待業|退休'
+
+    def add(key, value):
+        if key in values and value is not None:
+            values[key].add(value)
+
+    for sentence in re.split(r'[。；;\n]', t):
+        sentence = re.sub(r'\s+', '', sentence)
+        subjects = list(re.finditer(r'原告|被告|(?<![\u4e00-\u9fff])我', sentence))
+        for i, subject in enumerate(subjects):
+            role = 'defendant' if subject.group() == '被告' else 'plaintiff'
+            end = subjects[i + 1].start() if i + 1 < len(subjects) else len(sentence)
+            segment = sentence[subject.end():end]
+            # 不把當事人的親屬或代理人資料歸到當事人。
+            if re.match(r'(?:之|的)?(?:父|母|妻|夫|子|女|配偶|律師|代理人)', segment):
+                continue
+            for clause in re.split(r'[，、]|,(?!\d{3}(?:\D|$))', segment):
+                if re.search(r'未提供|不詳|不明|否認|爭執|不是|並非|未曾|不需|無須|未經|沒有|無法|不認', clause):
+                    continue
+                for m in re.finditer(rf'(?:學歷(?:為|是|:)?|教育程度(?:為|是|:)?)({edu})(?!肄業|未畢業)', clause):
+                    add(role + '_education', m.group(1))
+                for m in re.finditer(rf'({edu})(?:畢業|肄業)', clause):
+                    add(role + '_education', m.group(1) + ('肄業' if m.group().endswith('肄業') else ''))
+                for m in re.finditer(rf'(?:從事|擔任|職業(?:為|是|:)|現為|是)({jobs})(?:工作|職務)?', clause):
+                    add(role + '_occupation', m.group(1))
+                # 範圍與約數不轉成精確單一數值。
+                if re.search(r'約|至少|以上|以下|至|到|餘|多|不超過|~|～|－|-', clause):
+                    continue
+                for m in re.finditer(rf'(?:每月收入|每月薪資|月收入|月薪)(?:為|是|:)?(?:新[臺台]幣)?({number})元', clause):
+                    add(role + '_monthly_income', cn2int(m.group(1)))
+                if role != 'plaintiff':
+                    continue
+                m = re.search(rf'(?:醫囑|醫師建議|醫生建議|醫生說|醫生叫我)(?:應|需|須|宜|建議)?(?:休養|休息)(?:至少)?({number}|半)(?:個)?月(半)?', clause)
+                if m:
+                    raw = m.group(1)
+                    months = 0.5 if raw == '半' else (float(raw) if re.fullmatch(r'\d+(?:\.\d+)?', raw) else cn2int(raw))
+                    if months is not None:
+                        add('plaintiff_rest_months', months + (0.5 if m.group(2) else 0))
+                m = re.search(r'(?:勞動能力減損|勞動能力減少|減少勞動能力)(?:比例)?(?:為|達|:)?(百分之[零一二三四五六七八九十百\d]+|\d+(?:\.\d+)?%)', clause)
+                if m:
+                    add('plaintiff_labor_loss_ratio', parse_ratio(m.group(1)))
+    return {key: next(iter(items)) if len(items) == 1 else None for key, items in values.items()}
+
+
 def extract_features(facts: str) -> dict[str, Any]:
     t = facts or ""
     f: dict[str, Any] = {}
@@ -113,7 +279,11 @@ def extract_features(facts: str) -> dict[str, Any]:
         f[k] = int(_has(t, kws))
     for k, kws in CLAIM_ITEMS.items():
         f[k] = _amount_after(t, kws) or 0
+    vehicle_amount = extract_vehicle_amount(t)
+    if vehicle_amount is not None:
+        f["claim_vehicle"] = vehicle_amount
     f["claim_amount"] = extract_claim_amount(t) or 0
+    f.update(extract_deep_features(t))
     return f
 
 
@@ -201,14 +371,44 @@ def extract_plaintiff_fault(court: str) -> float | None:
 
 
 def extract_awarded_consolation(court: str) -> int | None:
-    t = court or ""
-    for m in re.finditer(r"(?:精神)?慰撫金", t):
-        seg = t[m.start(): m.start() + 120]
-        mm = re.search(rf"(?:以|核定為?|酌定為?|應以|准許)\s*(?:新[臺台]幣)?\s*([0-9０-９,，零一二三四五六七八九十百千萬]+)\s*元\s*(?:為|始為)?(?:適當|相當|允當|妥適|合理|適宜|妥當)", seg)
-        if mm:
-            return cn2int(mm.group(1))
-    return None
+    """擷取明確判准的慰撫金；沒有明確結論或金額有歧義時回傳 None。
 
+    本規則處理單句明確結論；跨句、多人或混合費用仍需人工覆核。
+    """
+    amount = rf"(?:新[臺台]幣)?\s*([{NUM_CHARS}.．]+)\s*元"
+    patterns = [
+        rf"(?:應)?(?:酌減為|酌定為|核定為|核定|酌定)\s*{amount}",
+        rf"(?:應以|以)\s*{amount}\s*(?:為|始為)"
+        rf"(?:適當|相當|允當|妥適|合理|適宜|妥當)",
+        rf"(?:請求)?\s*{amount}[，,]*(?:核屬相當|應予准許|應予准予)",
+    ]
+    candidates = set()
+    for sentence in re.split(r"[。；;]", court or ""):
+        sentence = re.sub(r"\s+", "", sentence)
+        if "慰撫金" not in sentence:
+            continue
+        # 否定或當事人建議不直接作為法院判准標籤。
+        if re.search(
+            r"不應|不予|不得|不宜|尚非|並非|非屬|無理由|不相當|不予准許"
+            r"|(?:原告|被告)(?:主張|認為|辯稱|抗辯|建議)", sentence
+        ):
+            continue
+        start = sentence.find("慰撫金") + len("慰撫金")
+        segment = sentence[start:]
+        if re.search(
+            r"醫療費|醫藥費|看護費|交通費|修車|車損|工作損失|薪資損失"
+            r"|另(?:一)?(?:名|位)原告|各|分別", segment
+        ):
+            continue
+        for pattern in patterns:
+            matches = list(re.finditer(pattern, segment))
+            if matches:
+                for match in matches:
+                    value = cn2int(match.group(1))
+                    if value is not None:
+                        candidates.add(value)
+                break
+    return next(iter(candidates)) if len(candidates) == 1 else None
 
 # ================================================================ 整合
 def extract_case(doc: dict) -> dict[str, Any]:
@@ -220,6 +420,11 @@ def extract_case(doc: dict) -> dict[str, Any]:
     sec: Sections = split_sections(doc.get("JFULL", ""))
     facts = sec.facts
     feats = extract_features(facts)
+    # 法院判斷中的背景資料獨立保存，避免回填成事前可知的模型輸入。
+    court_background = {
+        "court_" + key: value
+        for key, value in extract_deep_features(sec.court).items()
+    }
     # 請求金額以完整事實及理由搜尋較穩定（聲明段可能在原告主張之前）
     feats["claim_amount"] = extract_claim_amount(sec.body[: max(len(sec.body) - len(sec.court), 2000)]) \
         or feats["claim_amount"]
@@ -243,6 +448,7 @@ def extract_case(doc: dict) -> dict[str, Any]:
         "first_instance": is_first_instance(meta["case_type"]),
         "title": doc.get("JTITLE", ""),
         **{k: v for k, v in feats.items()},
+        **court_background,
         "outcome": main["outcome"],
         "awarded_amount": awarded,
         "award_ratio": min(ratio, 1.0) if ratio is not None else None,
