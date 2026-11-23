@@ -133,6 +133,77 @@ def extract_vehicle_amount(text: str) -> int | None:
     return None
 
 
+# 深度欄位暫不加入 NUMERIC_FEATURES：需驗證資料並重訓後才供模型使用。
+DEEP_FEATURE_FIELDS = (
+    'plaintiff_education', 'defendant_education',
+    'plaintiff_occupation', 'defendant_occupation',
+    'plaintiff_monthly_income', 'defendant_monthly_income',
+    'plaintiff_rest_months', 'plaintiff_labor_loss_ratio',
+)
+
+
+def extract_deep_features(text: str) -> dict[str, Any]:
+    """保守擷取明確單一當事人的資料。
+
+    每句需有原告／被告或第一人稱「我」；不跨句推定主詞。
+    職業保留原文名稱；不推論薪資、學歷或失能程度。
+    多人、否定、爭議、範圍或衝突數值留為 None。
+    休養僅接受醫囑且以月表示，不自行將天數換成月份。
+    """
+    from parsing.numbers import normalize_width
+
+    values = {key: set() for key in DEEP_FEATURE_FIELDS}
+    t = normalize_width(text or '')
+    # 目前的單人欄位無法表達多人分配，整段保守棄權。
+    if re.search(r'原告(?:等|二人|兩人|三人)|被告(?:等|二人|兩人|三人)|兩造均|分別|各自', t):
+        return {key: None for key in DEEP_FEATURE_FIELDS}
+
+    number = rf'[{NUM_CHARS}.]+'
+    edu = r'博士|碩士|研究所|大學|大專|專科|高中|高職|國中|國小|小學'
+    jobs = r'工程師|計程車司機|貨車司機|司機|教師|老師|護理師|護士|醫師|工人|服務生|店員|廚師|公務員|學生|無業|待業|退休'
+
+    def add(key, value):
+        if key in values and value is not None:
+            values[key].add(value)
+
+    for sentence in re.split(r'[。；;\n]', t):
+        sentence = re.sub(r'\s+', '', sentence)
+        subjects = list(re.finditer(r'原告|被告|(?<![\u4e00-\u9fff])我', sentence))
+        for i, subject in enumerate(subjects):
+            role = 'defendant' if subject.group() == '被告' else 'plaintiff'
+            end = subjects[i + 1].start() if i + 1 < len(subjects) else len(sentence)
+            segment = sentence[subject.end():end]
+            # 不把當事人的親屬或代理人資料歸到當事人。
+            if re.match(r'(?:之|的)?(?:父|母|妻|夫|子|女|配偶|律師|代理人)', segment):
+                continue
+            for clause in re.split(r'[，、]|,(?!\d{3}(?:\D|$))', segment):
+                if re.search(r'未提供|不詳|不明|否認|爭執|不是|並非|未曾|不需|無須|未經|沒有|無法|不認', clause):
+                    continue
+                for m in re.finditer(rf'(?:學歷(?:為|是|:)?|教育程度(?:為|是|:)?)({edu})(?!肄業|未畢業)', clause):
+                    add(role + '_education', m.group(1))
+                for m in re.finditer(rf'({edu})(?:畢業|肄業)', clause):
+                    add(role + '_education', m.group(1) + ('肄業' if m.group().endswith('肄業') else ''))
+                for m in re.finditer(rf'(?:從事|擔任|職業(?:為|是|:)|現為|是)({jobs})(?:工作|職務)?', clause):
+                    add(role + '_occupation', m.group(1))
+                # 範圍與約數不轉成精確單一數值。
+                if re.search(r'約|至少|以上|以下|至|到|餘|多|不超過|~|～|－|-', clause):
+                    continue
+                for m in re.finditer(rf'(?:每月收入|每月薪資|月收入|月薪)(?:為|是|:)?(?:新[臺台]幣)?({number})元', clause):
+                    add(role + '_monthly_income', cn2int(m.group(1)))
+                if role != 'plaintiff':
+                    continue
+                m = re.search(rf'(?:醫囑|醫師建議|醫生建議|醫生說|醫生叫我)(?:應|需|須|宜|建議)?(?:休養|休息)(?:至少)?({number}|半)(?:個)?月(半)?', clause)
+                if m:
+                    raw = m.group(1)
+                    months = 0.5 if raw == '半' else (float(raw) if re.fullmatch(r'\d+(?:\.\d+)?', raw) else cn2int(raw))
+                    if months is not None:
+                        add('plaintiff_rest_months', months + (0.5 if m.group(2) else 0))
+                m = re.search(r'(?:勞動能力減損|勞動能力減少|減少勞動能力)(?:比例)?(?:為|達|:)?(百分之[零一二三四五六七八九十百\d]+|\d+(?:\.\d+)?%)', clause)
+                if m:
+                    add('plaintiff_labor_loss_ratio', parse_ratio(m.group(1)))
+    return {key: next(iter(items)) if len(items) == 1 else None for key, items in values.items()}
+
+
 def extract_features(facts: str) -> dict[str, Any]:
     t = facts or ""
     f: dict[str, Any] = {}
@@ -166,6 +237,7 @@ def extract_features(facts: str) -> dict[str, Any]:
     if vehicle_amount is not None:
         f["claim_vehicle"] = vehicle_amount
     f["claim_amount"] = extract_claim_amount(t) or 0
+    f.update(extract_deep_features(t))
     return f
 
 
@@ -302,6 +374,11 @@ def extract_case(doc: dict) -> dict[str, Any]:
     sec: Sections = split_sections(doc.get("JFULL", ""))
     facts = sec.facts
     feats = extract_features(facts)
+    # 法院判斷中的背景資料獨立保存，避免回填成事前可知的模型輸入。
+    court_background = {
+        "court_" + key: value
+        for key, value in extract_deep_features(sec.court).items()
+    }
     # 請求金額以完整事實及理由搜尋較穩定（聲明段可能在原告主張之前）
     feats["claim_amount"] = extract_claim_amount(sec.body[: max(len(sec.body) - len(sec.court), 2000)]) \
         or feats["claim_amount"]
@@ -325,6 +402,7 @@ def extract_case(doc: dict) -> dict[str, Any]:
         "first_instance": is_first_instance(meta["case_type"]),
         "title": doc.get("JTITLE", ""),
         **{k: v for k, v in feats.items()},
+        **court_background,
         "outcome": main["outcome"],
         "awarded_amount": awarded,
         "award_ratio": min(ratio, 1.0) if ratio is not None else None,
