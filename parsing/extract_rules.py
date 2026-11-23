@@ -231,20 +231,20 @@ def extract_deep_features(text: str) -> dict[str, Any]:
                     add(role + '_education', m.group(1) + ('肄業' if m.group().endswith('肄業') else ''))
                 for m in re.finditer(rf'(?:從事|擔任|職業(?:為|是|:)|現為|是)({jobs})(?:工作|職務)?', clause):
                     add(role + '_occupation', m.group(1))
-                # 範圍與約數不轉成精確單一數值。
-                if re.search(r'約|至少|以上|以下|至|到|餘|多|不超過|~|～|－|-', clause):
+                # 區間與不確定上下限不轉成精確單一數值（放寬實務常見之「約／大約」表述）。
+                if re.search(r'至少|以上|以下|至|到|餘|多|不超過|~|～|－|-', clause):
                     continue
-                for m in re.finditer(rf'(?:每月收入|每月薪資|月收入|月薪)(?:為|是|:)?(?:新[臺台]幣)?({number})元', clause):
+                for m in re.finditer(rf'(?:每月收入|每月薪資|月收入|月薪)(?:為|是|:)?(?:大約|約)?(?:新[臺台]幣)?(?:大約|約)?({number})元', clause):
                     add(role + '_monthly_income', cn2int(m.group(1)))
                 if role != 'plaintiff':
                     continue
-                m = re.search(rf'(?:醫囑|醫師建議|醫生建議|醫生說|醫生叫我)(?:應|需|須|宜|建議)?(?:休養|休息)(?:至少)?({number}|半)(?:個)?月(半)?', clause)
+                m = re.search(rf'(?:醫囑|醫師建議|醫生建議|醫生說|醫生叫我)(?:應|需|須|宜|建議)?(?:休養|休息)(?:大約|約|至少)?({number}|半)(?:個)?月(半)?', clause)
                 if m:
                     raw = m.group(1)
                     months = 0.5 if raw == '半' else (float(raw) if re.fullmatch(r'\d+(?:\.\d+)?', raw) else cn2int(raw))
                     if months is not None:
                         add('plaintiff_rest_months', months + (0.5 if m.group(2) else 0))
-                m = re.search(r'(?:勞動能力減損|勞動能力減少|減少勞動能力)(?:比例)?(?:為|達|:)?(百分之[零一二三四五六七八九十百\d]+|\d+(?:\.\d+)?%)', clause)
+                m = re.search(r'(?:勞動能力減損|勞動能力減少|減少勞動能力)(?:比例)?(?:為|達|:)?(?:大約|約)?(百分之[零一二三四五六七八九十百\d]+|\d+(?:\.\d+)?%)', clause)
                 if m:
                     add('plaintiff_labor_loss_ratio', parse_ratio(m.group(1)))
     return {key: next(iter(items)) if len(items) == 1 else None for key, items in values.items()}

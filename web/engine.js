@@ -40,14 +40,105 @@
     claim_medical: ["醫療費用", "醫藥費", "醫療費"],
     claim_future_medical: ["將來醫療", "後續醫療", "未來醫療"],
     claim_care: ["看護費", "看護費用", "照護費"],
-    claim_transport: ["交通費", "就醫交通"],
-    claim_work_loss: ["不能工作損失", "工作損失", "薪資損失", "不能工作之損失", "營業損失"],
+    claim_transport: ["交通費", "就醫交通", "計程車資", "計程車費", "計程車車資"],
+    claim_work_loss: ["不能工作損失", "工作損失", "薪資損失", "不能工作之損失", "營業損失", "請假扣薪", "被扣薪", "扣薪", "少賺"],
     claim_labor_loss: ["勞動能力減損", "減少勞動能力", "勞動能力之損失"],
     claim_vehicle: ["車輛修理費", "修車費", "車損", "維修費", "修復費用", "車輛損害", "財物損失"],
     claim_funeral: ["殯葬費", "喪葬費"],
     claim_support: ["扶養費"],
     claim_consolation: ["精神慰撫金", "慰撫金", "精神上損害", "非財產上損害"],
   };
+
+  const VEHICLE_SPECS = {
+    car: { name: "自用小客車", useful_life: 5, declining_rate: 0.369 },
+    motorcycle: { name: "機車（機器腳踏車）", useful_life: 3, declining_rate: 0.536 },
+    commercial_car: { name: "營業用客車／計程車", useful_life: 4, declining_rate: 0.438 },
+    truck: { name: "貨車／大客車", useful_life: 5, declining_rate: 0.369 },
+  };
+
+  function calculateDepreciation({
+    vehicle_type = "car",
+    vehicle_age_years = 0,
+    parts_cost = 0,
+    labor_cost = 0,
+    method = "declining_balance",
+  } = {}) {
+    const spec = VEHICLE_SPECS[vehicle_type] || VEHICLE_SPECS.car;
+    const life = spec.useful_life;
+    const rate = spec.declining_rate;
+    const age = Math.max(0, Number(vehicle_age_years) || 0);
+    const parts = Math.max(0, Math.round(Number(parts_cost) || 0));
+    const labor = Math.max(0, Math.round(Number(labor_cost) || 0));
+    const original_total = parts + labor;
+
+    if (parts === 0) {
+      return {
+        applied: false,
+        vehicle_type,
+        vehicle_type_name: spec.name,
+        useful_life_years: life,
+        vehicle_age_years: Number(age.toFixed(2)),
+        method,
+        method_name: method === "straight_line" ? "平均法" : "定率遞減法",
+        parts_original: 0,
+        labor_original: labor,
+        original_total,
+        residual_ratio: 1,
+        parts_depreciated: 0,
+        approved_total: labor,
+        deducted_amount: 0,
+        formula_note: "未填寫零件費，工資部分不予折舊。",
+      };
+    }
+
+    let residual_ratio = 1;
+    let method_name = "定率遞減法";
+    let formula_note = "";
+    if (method === "straight_line") {
+      const floor_ratio = 1 / (life + 1);
+      const eff_age = Math.min(age, life);
+      residual_ratio = Math.max(floor_ratio, Math.min(1, 1 - (1 - floor_ratio) * (eff_age / life)));
+      method_name = "平均法";
+      formula_note = `${spec.name}耐用年數 ${life} 年，車齡 ${age.toFixed(1)} 年，採平均法（殘值下限 1/${life + 1}），零件殘值比例 ${(residual_ratio * 100).toFixed(1)}%；工資不折舊。`;
+    } else {
+      const floor_ratio = 0.1;
+      if (age >= life) {
+        residual_ratio = floor_ratio;
+      } else {
+        const fullYears = Math.floor(age);
+        const remFrac = age - fullYears;
+        let ratio = Math.pow(1 - rate, fullYears);
+        if (remFrac > 1e-6) {
+          const months = Math.min(12, Math.max(1, Math.ceil(remFrac * 12)));
+          ratio *= 1 - rate * (months / 12);
+        }
+        residual_ratio = Math.max(floor_ratio, Math.min(1, ratio));
+      }
+      formula_note = `${spec.name}耐用年數 ${life} 年（年折舊率 ${rate.toFixed(3)}），車齡 ${age.toFixed(1)} 年，採定率遞減法（殘值下限 10%），零件殘值比例 ${(residual_ratio * 100).toFixed(1)}%；工資不折舊。`;
+    }
+
+    const parts_depreciated = Math.round(parts * residual_ratio);
+    const approved_total = parts_depreciated + labor;
+    const deducted_amount = Math.max(0, original_total - approved_total);
+
+    return {
+      applied: true,
+      vehicle_type,
+      vehicle_type_name: spec.name,
+      useful_life_years: life,
+      vehicle_age_years: Number(age.toFixed(2)),
+      method,
+      method_name,
+      parts_original: parts,
+      labor_original: labor,
+      original_total,
+      residual_ratio: Number(residual_ratio.toFixed(4)),
+      parts_depreciated,
+      approved_total,
+      deducted_amount,
+      formula_note,
+    };
+  }
 
   function hasAny(text, kws) {
     return kws.some((k) => text.includes(k));
@@ -114,14 +205,21 @@
       "injury_level", "hospital_days", "surgery", "disability",
       "has_criminal", "has_appraisal", "claims_contributory",
       "v_red_light", "v_drunk", "v_speeding", "v_no_yield",
-      "claim_medical", "claim_care", "claim_work_loss", "claim_labor_loss",
-      "claim_vehicle", "claim_consolation", "claim_amount",
+      "claim_medical", "claim_future_medical", "claim_care", "claim_transport",
+      "claim_work_loss", "claim_labor_loss", "claim_vehicle",
+      "claim_funeral", "claim_support", "claim_consolation", "claim_amount",
     ];
     for (const k of overrideKeys) {
       const v = payload[k];
       if (v === undefined || v === null) continue;
       if (typeof v === "boolean") f[k] = v ? 1 : 0;
       else if (typeof v === "number" && (v > 0 || k === "injury_level")) f[k] = v;
+    }
+    if (!f.claim_vehicle && ((Number(payload.claim_vehicle_parts) || 0) > 0 || (Number(payload.claim_vehicle_labor) || 0) > 0)) {
+      f.claim_vehicle = (Number(payload.claim_vehicle_parts) || 0) + (Number(payload.claim_vehicle_labor) || 0);
+    }
+    if ((Number(payload.insurance_deduction) || 0) > 0) {
+      f.insurance_paid = 1;
     }
     if (f.injury_level === 4) f.death = 1;
     if (Array.isArray(payload.injury_terms) && payload.injury_terms.length) {
@@ -284,6 +382,17 @@
       `實務上法院會綜合雙方學經歷、資力與傷勢痛苦程度酌定慰撫金（本案預估核定約 ${fmt(r.predicted_consolation)} 元），另提醒車輛修復費用中之「更換新零件」實務上通常會依行政院固定資產耐用年數表扣除折舊。`
     );
 
+    if (r.depreciation && r.depreciation.applied) {
+      lines.push(
+        `• 車輛修復零件折舊試算：${r.depreciation.formula_note} 原請求修車費 ${fmt(r.depreciation.original_total)} 元（零件 ${fmt(r.depreciation.parts_original)} 元＋工資 ${fmt(r.depreciation.labor_original)} 元），折舊後預估核准 ${fmt(r.depreciation.approved_total)} 元（扣除折舊 ${fmt(r.depreciation.deducted_amount)} 元）。`
+      );
+    }
+    if ((r.insurance_deduction || 0) > 0) {
+      lines.push(
+        `• 強制險／保險理賠扣除：已領理賠金 ${fmt(r.insurance_deduction)} 元依法應自判賠金額中扣除，扣除後被告實際尚須給付淨額預估約 ${fmt(r.net_award_after_insurance)} 元。`
+      );
+    }
+
     if (topCases.length) {
       lines.push(`\n【四、歷年相似實務判決比照】`);
       topCases.forEach((c, idx) => {
@@ -323,6 +432,22 @@
       )
       .join("；");
 
+    const extraLines = [];
+    if (r.depreciation && r.depreciation.applied) {
+      extraLines.push(
+        `【車輛零件折舊試算】${r.depreciation.formula_note} 原請求 ${fmt(r.depreciation.original_total)} 元，折舊後核准 ${fmt(r.depreciation.approved_total)} 元（扣除折舊 ${fmt(r.depreciation.deducted_amount)} 元）。`
+      );
+    }
+    if ((r.insurance_deduction || 0) > 0) {
+      extraLines.push(`【保險理賠扣除】已領強制險／任意險 ${fmt(r.insurance_deduction)} 元，扣除後淨額約 ${fmt(r.net_award_after_insurance)} 元。`);
+    }
+    const bgParts = [];
+    if (st.plaintiff_education) bgParts.push(`學歷：${st.plaintiff_education}`);
+    if (st.plaintiff_occupation) bgParts.push(`職業：${st.plaintiff_occupation}`);
+    if (st.plaintiff_monthly_income) bgParts.push(`月收入：${fmt(st.plaintiff_monthly_income)}元`);
+    if (st.plaintiff_rest_months) bgParts.push(`醫囑休養：${st.plaintiff_rest_months}個月`);
+    if (bgParts.length) extraLines.push(`【原告背景與休養情形】${bgParts.join("、")}`);
+
     return (
       `你是台灣民事車禍判決預測系統的專業法律分析助理。請僅依據以下提供的案件事實、訓練模型（LightGBM）預測數據、SHAP關鍵因子與司法院真實相似判例，用繁體中文撰寫約 220～280 字的白話法律分析報告。\n` +
       `切勿自行捏造未提供的數字；最後一句請加註「（本分析由 Gemma 語言模型結合 12,174 筆真實判決庫生成，僅供學術研究參考，不構成正式法律意見。）」\n\n` +
@@ -330,8 +455,9 @@
       `【傷勢與請求明細】${st.injury_level_name || ""}（${(st.injury_terms || []).join("、") || "一般傷害"}），住院 ${st.hospital_days || 0} 日，手術：${st.surgery ? "有" : "無"}，請求總額 ${fmt(st.claim_amount)} 元（含醫療 ${fmt(st.claim_medical)}、看護 ${fmt(st.claim_care)}、工作損失 ${fmt(st.claim_work_loss)}、車損 ${fmt(st.claim_vehicle)}、精神慰撫金 ${fmt(st.claim_consolation)} 元）。\n` +
       `【訓練模型預測】預測結果：${r.label}（模型信心度 ${pct(r.confidence)}%），預估法院判賠總額 ${fmt(r.predicted_award)} 元（占請求 ${pct(r.predicted_ratio)}%），預估原告與有過失比例 ${pct(r.predicted_fault)}%，預估核定精神慰撫金 ${fmt(r.predicted_consolation)} 元。\n` +
       `【SHAP 關鍵影響因子】${facStr || "無特定顯著因子"}\n` +
-      `【歷年相似真實判例】${simStr}\n\n` +
-      `請分三段清楚說明：\n` +
+      `【歷年相似真實判例】${simStr}\n` +
+      (extraLines.length ? extraLines.join("\n") + "\n" : "") +
+      `\n請分三段清楚說明：\n` +
       `一、判決結果與判賠金額預測總評\n` +
       `二、肇事責任、民法侵權與過失相抵（第184、191-2、193、195、217條）審酌依據\n` +
       `三、相似實務判例比照與具體舉證建議`
@@ -509,11 +635,36 @@
       disability: Boolean(feats.disability),
       claim_amount: claimAmt,
       claim_medical: feats.claim_medical || 0,
+      claim_future_medical: feats.claim_future_medical || 0,
       claim_care: feats.claim_care || 0,
+      claim_transport: feats.claim_transport || 0,
       claim_work_loss: feats.claim_work_loss || 0,
+      claim_labor_loss: feats.claim_labor_loss || 0,
       claim_vehicle: feats.claim_vehicle || 0,
+      claim_funeral: feats.claim_funeral || 0,
+      claim_support: feats.claim_support || 0,
       claim_consolation: feats.claim_consolation || 0,
+      plaintiff_education: payload.plaintiff_education || null,
+      plaintiff_occupation: payload.plaintiff_occupation || null,
+      plaintiff_monthly_income: payload.plaintiff_monthly_income || null,
+      plaintiff_rest_months: payload.plaintiff_rest_months || null,
+      plaintiff_labor_loss_ratio: payload.plaintiff_labor_loss_ratio || null,
     };
+
+    const partsCost = Number(payload.claim_vehicle_parts) || 0;
+    const laborCost = Number(payload.claim_vehicle_labor) || 0;
+    const depreciation =
+      partsCost > 0 || laborCost > 0
+        ? calculateDepreciation({
+            vehicle_type: payload.vehicle_type || "car",
+            vehicle_age_years: Number(payload.vehicle_age_years) || 0,
+            parts_cost: partsCost,
+            labor_cost: laborCost,
+            method: payload.depreciation_method || "declining_balance",
+          })
+        : null;
+    const insDeduct = Math.max(0, Math.round(Number(payload.insurance_deduction) || 0));
+    const netAward = Math.max(0, predAward - insDeduct);
 
     const result = {
       label,
@@ -524,6 +675,9 @@
       predicted_fault: predFault,
       predicted_consolation: predConsol,
       extracted,
+      depreciation,
+      insurance_deduction: insDeduct,
+      net_award_after_insurance: netAward,
       reason: "",
       factors: topFactors,
       sentence_scores: sentenceScores,
@@ -538,11 +692,24 @@
     return result;
   }
 
+  function extractClientFeatures(text) {
+    const f = extractFeatures({ text });
+    const partsM = (text || "").match(/零件(?:費用|費)?\s*(?:為|共|計|花了)?\s*([0-9][0-9,，]*)\s*元/);
+    const laborM = (text || "").match(/(?:工資|工錢|工費|烤漆費?)\s*(?:為|共|計|花了)?\s*([0-9][0-9,，]*)\s*元/);
+    const ageM = (text || "").match(/(?:車齡|使用(?:期間)?(?:已達|約)?)\s*([0-9]+(?:\.[0-9]+)?)\s*年/);
+    f.claim_vehicle_parts = partsM ? parseInt(partsM[1].replace(/[,，]/g, ""), 10) : null;
+    f.claim_vehicle_labor = laborM ? parseInt(laborM[1].replace(/[,，]/g, ""), 10) : null;
+    f.vehicle_age_years = ageM ? parseFloat(ageM[1]) : null;
+    return f;
+  }
+
   global.StaticVerdictEngine = {
     ensureLoaded,
     predictLocal,
     buildDetailedLegalReport,
     streamCloudGemma,
     getCloudApiKey,
+    calculateDepreciation,
+    extractClientFeatures,
   };
 })(window);

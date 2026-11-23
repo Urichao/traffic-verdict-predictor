@@ -35,10 +35,26 @@ textarea{
   background-image:repeating-linear-gradient(transparent,transparent calc(2em - 1px),var(--line) calc(2em - 1px),var(--line) 2em);
   background-origin:content-box
 }
-input[type="number"],select{
+input[type="number"],input[type="text"],select{
   width:100%;border:1px solid var(--line);background:var(--field);color:var(--ink);
   padding:7px 10px;font:15px var(--sans);border-radius:4px
 }
+textarea.dragover{border:2px dashed var(--win);background:var(--win-bg)}
+.upload-bar{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;font-size:13.5px;color:var(--mute)}
+.upload-btn{
+  display:inline-flex;align-items:center;gap:6px;padding:4px 11px;border-radius:4px;
+  border:1px solid var(--win);color:var(--win);background:var(--card);cursor:pointer;font:500 13.5px var(--sans)
+}
+.upload-btn:hover{background:var(--win);color:#fff}
+.upload-msg{font-size:13px;color:var(--win);margin:6px 0 0;min-height:1.2em}
+details.adv{background:var(--field);border:1px solid var(--line);border-radius:4px;padding:10px 14px;margin-top:12px}
+details.adv summary{cursor:pointer;font-weight:700;font-size:14.5px;color:var(--ink);user-select:none;list-style:none;display:flex;justify-content:space-between;align-items:center}
+details.adv summary::-webkit-details-marker{display:none}
+details.adv summary::after{content:"＋";font-size:16px;color:var(--mute)}
+details.adv[open] summary::after{content:"－"}
+details.adv[open] summary{margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+.dep-preview{margin-top:10px;padding:10px 12px;border-radius:4px;background:var(--card);border:1px solid var(--line);border-left:4px solid var(--part);font-size:13.5px;line-height:1.6}
+.dep-card{background:var(--field);border:1px solid var(--line);border-left:4px solid var(--part);border-radius:4px;padding:12px 15px;font-size:14.5px;line-height:1.7}
 textarea:focus-visible,input:focus-visible,select:focus-visible,button:focus-visible{outline:3px solid var(--win);outline-offset:2px}
 .panel{background:var(--field);border:1px solid var(--line);border-radius:4px;padding:14px 16px;margin-top:14px}
 .panel-title{font-weight:700;font-size:15px;margin:0 0 10px;display:flex;justify-content:space-between;align-items:center}
@@ -120,7 +136,13 @@ mark.win{background:var(--win-bg)}mark.lose{background:var(--lose-bg)}mark.att{b
         <button class="link" type="button" data-sample="2">和解敗訴</button>
       </small>
     </h2>
-    <textarea id="text" placeholder="請描述車禍發生經過、雙方違規情形、原告傷勢與請求項目金額……"></textarea>
+    <div class="upload-bar">
+      <span>可直接貼上文字、拖曳檔案，或上傳起訴狀／案情文字檔自動帶入欄位</span>
+      <label class="upload-btn" for="case-file">📂 上傳文字檔 (.txt / .docx / .pdf)</label>
+      <input type="file" id="case-file" accept=".txt,.docx,.pdf,.md" hidden>
+    </div>
+    <textarea id="text" placeholder="請描述車禍發生經過、雙方違規情形、原告傷勢與請求項目金額……（亦支援拖曳 .txt / .docx / .pdf 檔至此處）"></textarea>
+    <div class="upload-msg" id="upload-msg"></div>
 
     <div class="panel">
       <div class="panel-title">
@@ -186,6 +208,75 @@ mark.win{background:var(--win-bg)}mark.lose{background:var(--lose-bg)}mark.att{b
         <label class="field"><span>請求總金額</span><input type="number" id="claim_amount" min="0" step="10000" placeholder="自動加總/擷取"></label>
       </div>
     </div>
+
+    <details class="adv" id="adv-money">
+      <summary><span>展開車輛折舊試算、其他金額欄位與保險扣除（選填）</span></summary>
+      <div style="font-size:13.5px;font-weight:700;margin-bottom:8px;color:var(--ink)">車輛修復零件折舊試算（依行政院固定資產耐用年數表）</div>
+      <div class="form-grid-3">
+        <label class="field">
+          <span>車種</span>
+          <select id="vehicle_type">
+            <option value="car">自用小客車（耐用 5 年）</option>
+            <option value="motorcycle">機車（耐用 3 年）</option>
+            <option value="commercial_car">營業用客車（耐用 4 年）</option>
+            <option value="truck">貨車／大客車（耐用 5 年）</option>
+          </select>
+        </label>
+        <label class="field"><span>車齡（年）</span><input type="number" id="vehicle_age_years" min="0" max="30" step="0.5" placeholder="例如 3.5"></label>
+        <label class="field">
+          <span>折舊計算方式</span>
+          <select id="depreciation_method">
+            <option value="declining_balance">定率遞減法（法院主流）</option>
+            <option value="straight_line">平均法</option>
+          </select>
+        </label>
+        <label class="field"><span>修車零件費（須折舊）</span><input type="number" id="claim_vehicle_parts" min="0" step="1000" placeholder="例如 30000"></label>
+        <label class="field"><span>修車工資／烤漆（不折舊）</span><input type="number" id="claim_vehicle_labor" min="0" step="1000" placeholder="例如 15000"></label>
+      </div>
+      <div class="dep-preview" id="dep-preview" style="display:none"></div>
+
+      <div style="font-size:13.5px;font-weight:700;margin:14px 0 8px;color:var(--ink)">其他損害賠償金額與已領保險扣除（新臺幣／元）</div>
+      <div class="form-grid-3">
+        <label class="field"><span>勞動能力減損</span><input type="number" id="claim_labor_loss" min="0" step="10000" placeholder="自動擷取"></label>
+        <label class="field"><span>將來醫療／復健費</span><input type="number" id="claim_future_medical" min="0" step="1000" placeholder="自動擷取"></label>
+        <label class="field"><span>就醫交通費</span><input type="number" id="claim_transport" min="0" step="500" placeholder="自動擷取"></label>
+        <label class="field"><span>殯葬費（死亡適用）</span><input type="number" id="claim_funeral" min="0" step="10000" placeholder="選填"></label>
+        <label class="field"><span>扶養費（死亡適用）</span><input type="number" id="claim_support" min="0" step="10000" placeholder="選填"></label>
+        <label class="field"><span>已領強制險／保險扣除額</span><input type="number" id="insurance_deduction" min="0" step="1000" placeholder="依法自判賠扣除"></label>
+      </div>
+    </details>
+
+    <details class="adv" id="adv-bg">
+      <summary><span>展開當事人學經歷與休養情形（精神慰撫金參考，選填）</span></summary>
+      <div class="form-grid-3">
+        <label class="field">
+          <span>原告學歷</span>
+          <select id="plaintiff_education">
+            <option value="">自動由內文擷取</option>
+            <option value="國小">國小</option>
+            <option value="國中">國中</option>
+            <option value="高中">高中</option>
+            <option value="高職">高職</option>
+            <option value="專科">專科／大專</option>
+            <option value="大學">大學</option>
+            <option value="碩士">碩士／研究所</option>
+            <option value="博士">博士</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>原告職業</span>
+          <input type="text" id="plaintiff_occupation" list="job-options" placeholder="例如 工程師、司機">
+          <datalist id="job-options">
+            <option value="工程師"><option value="設計師"><option value="教師"><option value="護理師">
+            <option value="醫師"><option value="公務員"><option value="司機"><option value="服務生">
+            <option value="工人"><option value="學生"><option value="退休"><option value="無業">
+          </datalist>
+        </label>
+        <label class="field"><span>原告月收入（元）</span><input type="number" id="plaintiff_monthly_income" min="0" step="1000" placeholder="例如 45000"></label>
+        <label class="field"><span>醫囑宜休養（月）</span><input type="number" id="plaintiff_rest_months" min="0" max="60" step="0.5" placeholder="例如 3"></label>
+        <label class="field"><span>勞動能力減損比例（%）</span><input type="number" id="plaintiff_labor_loss_ratio" min="0" max="100" step="0.5" placeholder="例如 15"></label>
+      </div>
+    </details>
 
     <div class="row">
       <button class="primary" id="go">開始預測與分析</button>
@@ -261,11 +352,133 @@ document.querySelectorAll("#injury-chips .chip").forEach(el=>{
 });
 
 function clearForm(){
-  ["injury_level","hospital_days","surgery","claim_medical","claim_care","claim_work_loss","claim_vehicle","claim_consolation","claim_amount"].forEach(id=>$(id).value="");
+  [
+    "injury_level","hospital_days","surgery",
+    "claim_medical","claim_future_medical","claim_care","claim_transport",
+    "claim_work_loss","claim_labor_loss","claim_vehicle","claim_funeral","claim_support",
+    "claim_consolation","claim_amount","insurance_deduction",
+    "vehicle_age_years","claim_vehicle_parts","claim_vehicle_labor",
+    "plaintiff_education","plaintiff_occupation","plaintiff_monthly_income",
+    "plaintiff_rest_months","plaintiff_labor_loss_ratio"
+  ].forEach(id=>{if($(id)) $(id).value="";});
+  if($("vehicle_type")) $("vehicle_type").value="car";
+  if($("depreciation_method")) $("depreciation_method").value="declining_balance";
   ["v_red_light","v_drunk","v_no_yield","claims_contributory","has_criminal","has_appraisal"].forEach(id=>$(id).checked=false);
   document.querySelectorAll("#injury-chips .chip").forEach(c=>c.classList.remove("active"));
+  if($("dep-preview")) $("dep-preview").style.display="none";
+  if($("upload-msg")) $("upload-msg").textContent="";
 }
 $("clear-form").onclick=clearForm;
+
+// 即時更新車輛零件折舊試算預覽
+function updateDepreciationPreview(){
+  const parts=Number($("claim_vehicle_parts").value||0);
+  const labor=Number($("claim_vehicle_labor").value||0);
+  const box=$("dep-preview");
+  if(!parts && !labor){ box.style.display="none"; return; }
+  const dep=window.StaticVerdictEngine.calculateDepreciation({
+    vehicle_type:$("vehicle_type").value,
+    vehicle_age_years:Number($("vehicle_age_years").value||0),
+    parts_cost:parts,
+    labor_cost:labor,
+    method:$("depreciation_method").value
+  });
+  box.style.display="block";
+  box.innerHTML=`<b>即時折舊試算：</b>原修車總額 <b>$${fmt(dep.original_total)}</b>（零件 $${fmt(dep.parts_original)} ＋ 工資 $${fmt(dep.labor_original)}）→ `
+    + `零件折舊後 $${fmt(dep.parts_depreciated)} ＋ 工資 $${fmt(dep.labor_original)} ＝ <b class="win">預估法院核准 $${fmt(dep.approved_total)}</b>`
+    + (dep.deducted_amount>0?`（扣除折舊 <span class="lose">−$${fmt(dep.deducted_amount)}</span>）`:"")
+    + `<br><span style="color:var(--mute)">${esc(dep.formula_note)}</span>`;
+  if(!$("claim_vehicle").value || $("claim_vehicle").dataset.auto==="1"){
+    $("claim_vehicle").value=dep.original_total;
+    $("claim_vehicle").dataset.auto="1";
+  }
+}
+["vehicle_type","vehicle_age_years","depreciation_method","claim_vehicle_parts","claim_vehicle_labor"].forEach(id=>{
+  $(id).addEventListener("input",updateDepreciationPreview);
+  $(id).addEventListener("change",updateDepreciationPreview);
+});
+$("claim_vehicle").addEventListener("input",()=>{$("claim_vehicle").dataset.auto="0";});
+
+// 上傳文字檔並自動填表（支援 .txt / .docx / .pdf）
+function applyExtractedToForm(ex){
+  if(!ex) return 0;
+  let filled=0;
+  const setIf=(id,val)=>{if(val!==undefined && val!==null && val!=="" && val!==0 && $(id)){$(id).value=val; filled++;}};
+  if(ex.injury_level>0){$("injury_level").value=String(ex.injury_level); filled++;}
+  setIf("hospital_days",ex.hospital_days);
+  if(ex.surgery){$("surgery").value="true"; filled++;}
+  if(Array.isArray(ex.injury_terms) && ex.injury_terms.length){
+    document.querySelectorAll("#injury-chips .chip").forEach(c=>{
+      if(ex.injury_terms.includes(c.dataset.term)) c.classList.add("active");
+    });
+  }
+  ["v_red_light","v_drunk","v_no_yield","claims_contributory","has_criminal","has_appraisal"].forEach(id=>{
+    if(ex[id] && $(id)){$(id).checked=true; filled++;}
+  });
+  [
+    "claim_medical","claim_future_medical","claim_care","claim_transport",
+    "claim_work_loss","claim_labor_loss","claim_vehicle","claim_funeral",
+    "claim_support","claim_consolation","claim_amount",
+    "claim_vehicle_parts","claim_vehicle_labor","vehicle_age_years",
+    "plaintiff_education","plaintiff_occupation","plaintiff_monthly_income","plaintiff_rest_months"
+  ].forEach(k=>setIf(k,ex[k]));
+  if(ex.vehicle_type && $("vehicle_type")) $("vehicle_type").value=ex.vehicle_type;
+  if(ex.plaintiff_labor_loss_ratio>0){
+    $("plaintiff_labor_loss_ratio").value=Number((ex.plaintiff_labor_loss_ratio*100).toFixed(1));
+    filled++;
+  }
+  if(ex.claim_vehicle_parts || ex.claim_vehicle_labor || ex.claim_future_medical || ex.claim_transport || ex.claim_labor_loss){
+    $("adv-money").open=true;
+    updateDepreciationPreview();
+  }
+  if(ex.plaintiff_education || ex.plaintiff_occupation || ex.plaintiff_monthly_income || ex.plaintiff_rest_months || ex.plaintiff_labor_loss_ratio){
+    $("adv-bg").open=true;
+  }
+  return filled;
+}
+
+async function handleUploadedFile(file){
+  if(!file) return;
+  $("err").textContent="";
+  $("upload-msg").textContent=`正在讀取「${file.name}」…`;
+  try{
+    if(backendOnline){
+      const fd=new FormData();
+      fd.append("file",file);
+      const res=await fetch("/api/upload-text",{method:"POST",body:fd});
+      const data=await res.json();
+      if(!res.ok) throw new Error(data.detail||res.status);
+      clearForm();
+      $("text").value=data.text;
+      const n=applyExtractedToForm(data.extracted);
+      $("upload-msg").textContent=`已匯入「${data.filename}」（共 ${data.text.length} 字），自動偵測並帶入 ${n} 項欄位，您仍可手動微調。`;
+    }else{
+      const lower=file.name.toLowerCase();
+      if(!lower.endsWith(".txt") && !lower.endsWith(".md")){
+        throw new Error("雲端純靜態模式僅支援瀏覽器直接讀取 .txt / .md 檔；如需解析 .docx / .pdf 請使用本機伺服器版。");
+      }
+      const txt=await file.text();
+      clearForm();
+      $("text").value=txt.trim();
+      const ex=window.StaticVerdictEngine.extractClientFeatures(txt);
+      const n=applyExtractedToForm(ex);
+      $("upload-msg").textContent=`已匯入「${file.name}」（共 ${txt.length} 字），自動帶入 ${n} 項欄位。`;
+    }
+  }catch(e){
+    $("upload-msg").textContent="";
+    $("err").textContent=`檔案匯入失敗：${e.message||e}`;
+  }
+}
+
+$("case-file").onchange=e=>{handleUploadedFile(e.target.files?.[0]); e.target.value="";};
+const ta=$("text");
+ta.addEventListener("dragover",e=>{e.preventDefault(); ta.classList.add("dragover");});
+ta.addEventListener("dragleave",()=>ta.classList.remove("dragover"));
+ta.addEventListener("drop",e=>{
+  e.preventDefault(); ta.classList.remove("dragover");
+  const file=e.dataTransfer?.files?.[0];
+  if(file) handleUploadedFile(file);
+});
 
 document.querySelectorAll("[data-sample]").forEach(btn=>{
   btn.onclick=()=>{
@@ -286,18 +499,33 @@ document.querySelectorAll("[data-sample]").forEach(btn=>{
 function buildPayload(){
   const text=$("text").value.trim();
   const payload={text};
-  const intVal=id=>{const v=$(id).value.trim(); return v===""?null:Number(v);};
-  payload.injury_level=intVal("injury_level");
-  payload.hospital_days=intVal("hospital_days");
+  const numVal=id=>{const v=$(id)?.value.trim(); return !v?null:Number(v);};
+  const strVal=id=>{const v=$(id)?.value.trim(); return !v?null:v;};
+  payload.injury_level=numVal("injury_level");
+  payload.hospital_days=numVal("hospital_days");
   if($("surgery").value!=="") payload.surgery=$("surgery").value==="true";
   const terms=[...document.querySelectorAll("#injury-chips .chip.active")].map(c=>c.dataset.term);
   if(terms.length) payload.injury_terms=terms;
   ["v_red_light","v_drunk","v_no_yield","claims_contributory","has_criminal","has_appraisal"].forEach(id=>{
     if($(id).checked) payload[id]=true;
   });
-  ["claim_medical","claim_care","claim_work_loss","claim_vehicle","claim_consolation","claim_amount"].forEach(id=>{
-    const v=intVal(id); if(v!==null) payload[id]=v;
+  [
+    "claim_medical","claim_future_medical","claim_care","claim_transport",
+    "claim_work_loss","claim_labor_loss","claim_vehicle","claim_funeral",
+    "claim_support","claim_consolation","claim_amount","insurance_deduction",
+    "claim_vehicle_parts","claim_vehicle_labor","vehicle_age_years",
+    "plaintiff_monthly_income","plaintiff_rest_months"
+  ].forEach(id=>{
+    const v=numVal(id); if(v!==null) payload[id]=v;
   });
+  if(payload.claim_vehicle_parts || payload.claim_vehicle_labor){
+    payload.vehicle_type=$("vehicle_type").value;
+    payload.depreciation_method=$("depreciation_method").value;
+  }
+  const edu=strVal("plaintiff_education"); if(edu) payload.plaintiff_education=edu;
+  const occ=strVal("plaintiff_occupation"); if(occ) payload.plaintiff_occupation=occ;
+  const laborPct=numVal("plaintiff_labor_loss_ratio");
+  if(laborPct!==null) payload.plaintiff_labor_loss_ratio=Number((laborPct/100).toFixed(4));
   return payload;
 }
 
@@ -339,6 +567,33 @@ function render(r,text){
       <p>${esc(c.summary)}</p>
     </div>`).join("");
 
+  const extraCalcBlocks=[];
+  if(r.depreciation && r.depreciation.applied){
+    const d=r.depreciation;
+    extraCalcBlocks.push(
+      `<div><b>車輛修復零件折舊（${esc(d.method_name)}）：</b>原請求 <b>$${fmt(d.original_total)}</b>（零件 $${fmt(d.parts_original)} ＋ 工資 $${fmt(d.labor_original)}）→ `
+      + `零件折舊後 $${fmt(d.parts_depreciated)}（殘值 ${Math.round(d.residual_ratio*100)}%）＋ 工資 $${fmt(d.labor_original)} ＝ `
+      + `<b class="win">預估核准 $${fmt(d.approved_total)}</b>（扣除折舊 <span class="lose">−$${fmt(d.deducted_amount)}</span>）<br>`
+      + `<span class="note">${esc(d.formula_note)}</span></div>`
+    );
+  }
+  if((r.insurance_deduction||0)>0){
+    extraCalcBlocks.push(
+      `<div style="margin-top:6px"><b>已領強制險／保險理賠扣除：</b>模型預估總判賠 $${fmt(r.predicted_award)} − 已領理賠 $${fmt(r.insurance_deduction)} ＝ `
+      + `<b class="win">被告尚須給付預估淨額 $${fmt(r.net_award_after_insurance)}</b></div>`
+    );
+  }
+  const extraCalcHtml=extraCalcBlocks.length
+    ? `<section><h2><span>車損折舊與保險扣除試算</span><small>依行政院固定資產耐用年數表與民法實務</small></h2><div class="dep-card">${extraCalcBlocks.join("")}</div></section>`
+    : "";
+
+  const bgBits=[];
+  if(r.extracted.plaintiff_education) bgBits.push(`學歷：${r.extracted.plaintiff_education}`);
+  if(r.extracted.plaintiff_occupation) bgBits.push(`職業：${r.extracted.plaintiff_occupation}`);
+  if(r.extracted.plaintiff_monthly_income) bgBits.push(`月薪：$${fmt(r.extracted.plaintiff_monthly_income)}`);
+  if(r.extracted.plaintiff_rest_months) bgBits.push(`醫囑休養：${r.extracted.plaintiff_rest_months} 個月`);
+  const bgNote=bgBits.length?`｜原告背景：${esc(bgBits.join("、"))}`:"";
+
   $("out").innerHTML=`
   <section>
     <h2><span>訓練模型預測結果</span><small>LightGBM 分類與金額迴歸模型</small></h2>
@@ -353,8 +608,10 @@ function render(r,text){
       <div class="kpi"><span>預估原告過失比例</span><strong>${pct(r.predicted_fault)}%</strong></div>
       <div class="kpi"><span>預估核定慰撫金</span><strong>$${fmt(r.predicted_consolation)}</strong></div>
     </div>
-    <p class="note">系統辨識傷勢：${esc(r.extracted.injury_level_name)}（${(r.extracted.injury_terms||[]).join("、")||"無特定詞"}）｜請求總額：$${fmt(r.extracted.claim_amount)} 元</p>
+    <p class="note">系統辨識傷勢：${esc(r.extracted.injury_level_name)}（${(r.extracted.injury_terms||[]).join("、")||"無特定詞"}）｜請求總額：$${fmt(r.extracted.claim_amount)} 元${bgNote}</p>
   </section>
+
+  ${extraCalcHtml}
 
   <section>
     <h2>

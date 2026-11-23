@@ -58,5 +58,15 @@ class DeepFeaturesTests(unittest.TestCase):
         self.assertEqual(extract_awarded_consolation('精神慰撫金請求10萬元，應酌減為6萬元。'),60000)
         self.assertIsNone(extract_awarded_consolation('原告請求精神慰撫金10萬元。'))
 
+    def test_approximate_wording(self):
+        f = extract_deep_features('原告自陳國小畢業，每月收入約3萬元；被告大學畢業，月薪大約45,000元。原告醫囑休養約2個月，勞動能力減損約15%。')
+        self.assertEqual(f['plaintiff_monthly_income'], 30000)
+        self.assertEqual(f['defendant_monthly_income'], 45000)
+        self.assertEqual(f['plaintiff_rest_months'], 2)
+        self.assertEqual(f['plaintiff_labor_loss_ratio'], 0.15)
+        # 區間範圍仍維持嚴格排除
+        self.assertIsNone(extract_deep_features('原告月收入3萬至5萬元。')['plaintiff_monthly_income'])
+        self.assertIsNone(extract_deep_features('原告月收入5萬元以上。')['plaintiff_monthly_income'])
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
