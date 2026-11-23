@@ -253,14 +253,44 @@ def extract_plaintiff_fault(court: str) -> float | None:
 
 
 def extract_awarded_consolation(court: str) -> int | None:
-    t = court or ""
-    for m in re.finditer(r"(?:精神)?慰撫金", t):
-        seg = t[m.start(): m.start() + 120]
-        mm = re.search(rf"(?:以|核定為?|酌定為?|應以|准許)\s*(?:新[臺台]幣)?\s*([0-9０-９,，零一二三四五六七八九十百千萬]+)\s*元\s*(?:為|始為)?(?:適當|相當|允當|妥適|合理|適宜|妥當)", seg)
-        if mm:
-            return cn2int(mm.group(1))
-    return None
+    """擷取明確判准的慰撫金；沒有明確結論或金額有歧義時回傳 None。
 
+    本規則處理單句明確結論；跨句、多人或混合費用仍需人工覆核。
+    """
+    amount = rf"(?:新[臺台]幣)?\s*([{NUM_CHARS}.．]+)\s*元"
+    patterns = [
+        rf"(?:應)?(?:酌減為|酌定為|核定為|核定|酌定)\s*{amount}",
+        rf"(?:應以|以)\s*{amount}\s*(?:為|始為)"
+        rf"(?:適當|相當|允當|妥適|合理|適宜|妥當)",
+        rf"(?:請求)?\s*{amount}[，,]*(?:核屬相當|應予准許|應予准予)",
+    ]
+    candidates = set()
+    for sentence in re.split(r"[。；;]", court or ""):
+        sentence = re.sub(r"\s+", "", sentence)
+        if "慰撫金" not in sentence:
+            continue
+        # 否定或當事人建議不直接作為法院判准標籤。
+        if re.search(
+            r"不應|不予|不得|不宜|尚非|並非|非屬|無理由|不相當|不予准許"
+            r"|(?:原告|被告)(?:主張|認為|辯稱|抗辯|建議)", sentence
+        ):
+            continue
+        start = sentence.find("慰撫金") + len("慰撫金")
+        segment = sentence[start:]
+        if re.search(
+            r"醫療費|醫藥費|看護費|交通費|修車|車損|工作損失|薪資損失"
+            r"|另(?:一)?(?:名|位)原告|各|分別", segment
+        ):
+            continue
+        for pattern in patterns:
+            matches = list(re.finditer(pattern, segment))
+            if matches:
+                for match in matches:
+                    value = cn2int(match.group(1))
+                    if value is not None:
+                        candidates.add(value)
+                break
+    return next(iter(candidates)) if len(candidates) == 1 else None
 
 # ================================================================ 整合
 def extract_case(doc: dict) -> dict[str, Any]:
