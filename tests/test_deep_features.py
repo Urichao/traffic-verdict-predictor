@@ -39,7 +39,8 @@ class DeepFeaturesTests(unittest.TestCase):
         self.assertIsNone(extract_deep_features('原告醫囑休養30天。')['plaintiff_rest_months'])
 
     def test_no_inferred_subject_or_doctor(self):
-        self.assertIsNone(extract_deep_features('原告大學畢業。月收入五萬元。')['plaintiff_monthly_income'])
+        # 新規格：緊接單一原告背景句的收入可延續歸屬。
+        self.assertEqual(extract_deep_features('原告大學畢業。月收入五萬元。')['plaintiff_monthly_income'], 50000)
         self.assertIsNone(extract_deep_features('原告自行休養兩個月。')['plaintiff_rest_months'])
         self.assertEqual(extract_deep_features('我月收入五萬元。')['plaintiff_monthly_income'],50000)
 

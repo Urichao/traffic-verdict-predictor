@@ -71,16 +71,62 @@ def _has(text: str, kws) -> bool:
 
 
 def _amount_after(text: str, kws, window: int = 40) -> int | None:
-    """找關鍵字後 window 字內第一個金額（取全文中最早出現者）。"""
-    hits = []
-    for k in kws:
-        for m in re.finditer(re.escape(k), text):
-            am = AMOUNT_RE.search(text[m.end(): m.end() + window])
-            v = cn2int(am.group(1)) if am else None
-            if v:
-                hits.append((m.start(), v))
-                break
-    return min(hits)[1] if hits else None
+    """同一子句內找項目金額；不跨項目或否定／未知敘述取值。"""
+    other_kws = [word for words in CLAIM_ITEMS.values() for word in words
+                 if word not in kws]
+    # 保留金額千分位中的逗號與小數點。
+    clauses = re.split(r'[。；;\n，、]|,(?!\d{3}(?:\D|$))', text or '')
+    for clause in clauses:
+        matches = sorted(
+            (match for word in kws for match in re.finditer(re.escape(word), clause)),
+            key=lambda match: (match.start(), -len(match.group())),
+        )
+        for match in matches:
+            before = clause[:match.start()]
+            if re.search(r'沒有|並無|未有|無須|不需|未請求|不請求|否認|未發生', before):
+                continue
+            tail = clause[match.end():match.end() + window]
+            boundaries = [tail.find(word) for word in other_kws if word in tail]
+            if boundaries:
+                tail = tail[:min(boundaries)]
+            amount = AMOUNT_RE.search(tail)
+            if not amount:
+                continue
+            context = tail[:amount.start()]
+            if re.search(r'不詳|不明|不清楚|未知|未確定|待確認|沒有|不需|無須|不請求|未支出', context):
+                continue
+            value = cn2int(amount.group(1))
+            if value is not None:
+                return value
+    return None
+
+
+def _continue_profile_subject(text: str) -> str:
+    """僅將緊接單一當事人背景句的月薪句補上主詞。
+
+    換行、分號、其他人物、爭議或插入其他敘述均中止延續。
+    只延續一次，不將整段文字都套用前一位當事人。
+    """
+    pieces = re.split(r'([。；;\n])', text)
+    previous_role = None
+    for i in range(0, len(pieces), 2):
+        sentence = pieces[i]
+        compact = re.sub(r'\s+', '', sentence)
+        subjects = re.findall(r'原告|被告|(?<![\u4e00-\u9fff])我', compact)
+        if not subjects and previous_role and re.match(r'^(?:每月收入|每月薪資|月收入|月薪)', compact):
+            pieces[i] = previous_role + sentence
+            previous_role = None
+            continue
+        previous_role = None
+        if len(subjects) != 1:
+            continue
+        if re.search(r'父|母|妻|丈夫|兒子|女兒|配偶|律師|代理人|朋友|證人|主張|抗辯|否認|認為|表示|稱|「|」|"', compact):
+            continue
+        if not re.search(r'畢業|肄業|學歷|教育程度|從事|擔任|職業|月收入|月薪', compact):
+            continue
+        if i + 1 < len(pieces) and pieces[i + 1] == '。':
+            previous_role = subjects[0]
+    return ''.join(pieces)
 
 
 # ================================================================ 特徵（案情事實）
@@ -145,7 +191,7 @@ DEEP_FEATURE_FIELDS = (
 def extract_deep_features(text: str) -> dict[str, Any]:
     """保守擷取明確單一當事人的資料。
 
-    每句需有原告／被告或第一人稱「我」；不跨句推定主詞。
+    原告／被告或第一人稱「我」為主詞；僅延續緊接背景句的月薪句。
     職業保留原文名稱；不推論薪資、學歷或失能程度。
     多人、否定、爭議、範圍或衝突數值留為 None。
     休養僅接受醫囑且以月表示，不自行將天數換成月份。
@@ -153,14 +199,14 @@ def extract_deep_features(text: str) -> dict[str, Any]:
     from parsing.numbers import normalize_width
 
     values = {key: set() for key in DEEP_FEATURE_FIELDS}
-    t = normalize_width(text or '')
+    t = _continue_profile_subject(normalize_width(text or ''))
     # 目前的單人欄位無法表達多人分配，整段保守棄權。
     if re.search(r'原告(?:等|二人|兩人|三人)|被告(?:等|二人|兩人|三人)|兩造均|分別|各自', t):
         return {key: None for key in DEEP_FEATURE_FIELDS}
 
     number = rf'[{NUM_CHARS}.]+'
     edu = r'博士|碩士|研究所|大學|大專|專科|高中|高職|國中|國小|小學'
-    jobs = r'工程師|計程車司機|貨車司機|司機|教師|老師|護理師|護士|醫師|工人|服務生|店員|廚師|公務員|學生|無業|待業|退休'
+    jobs = r'設計師|工程師|計程車司機|貨車司機|司機|教師|老師|護理師|護士|醫師|工人|服務生|店員|廚師|公務員|學生|無業|待業|退休'
 
     def add(key, value):
         if key in values and value is not None:
