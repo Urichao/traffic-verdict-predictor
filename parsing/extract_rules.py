@@ -50,8 +50,8 @@ CLAIM_ITEMS = {
     "claim_medical": ("醫療費用", "醫藥費", "醫療費"),
     "claim_future_medical": ("將來醫療", "後續醫療", "未來醫療"),
     "claim_care": ("看護費", "看護費用", "照護費"),
-    "claim_transport": ("交通費", "就醫交通"),
-    "claim_work_loss": ("不能工作損失", "工作損失", "薪資損失", "不能工作之損失", "營業損失"),
+    "claim_transport": ("交通費", "就醫交通", "計程車資", "計程車費", "計程車車資"),
+    "claim_work_loss": ("不能工作損失", "工作損失", "薪資損失", "不能工作之損失", "營業損失", "請假扣薪", "被扣薪", "扣薪", "少賺"),
     "claim_labor_loss": ("勞動能力減損", "減少勞動能力", "勞動能力之損失"),
     "claim_vehicle": ("車輛修理費", "修車費", "車損", "維修費", "修復費用", "車輛損害", "財物損失"),
     "claim_funeral": ("殯葬費", "喪葬費"),
@@ -84,6 +84,55 @@ def _amount_after(text: str, kws, window: int = 40) -> int | None:
 
 
 # ================================================================ 特徵（案情事實）
+def extract_vehicle_amount(text: str) -> int | None:
+    """擷取同一句的修車明細；明確修車總額優先，避免重複加總。
+
+    跨句明細、多筆報價與折舊計算仍需另外處理。
+    """
+    amount = rf"(?:新[臺台]幣)?\s*([{NUM_CHARS}.．]+)\s*元"
+    connector = r"\s*(?:為|共|計|花了|花費)?\s*[:：]?\s*"
+    part_pattern = re.compile(
+        rf"(?:零件(?:費用|費)?|工資|工錢|工費){connector}{amount}"
+    )
+    total_pattern = re.compile(
+        rf"(?:車輛修理費|修車費|維修費|修復費用|修車)"
+        rf"\s*(?:共計|合計|總計|總共)?{connector}{amount}"
+    )
+    other_items = tuple(
+        kw for field, keywords in CLAIM_ITEMS.items()
+        if field != "claim_vehicle" for kw in keywords
+    )
+    for sentence in re.split(r"[。；;\n]", text or ""):
+        repair = re.search(r"修車|修理|維修|修復|車損", sentence)
+        if not repair:
+            continue
+        segment = sentence[repair.start():]
+        # 停在下一個賠償項目，避免把整案合計當成修車總額。
+        boundaries = [segment.find(kw) for kw in other_items if kw in segment]
+        if boundaries:
+            segment = segment[:min(boundaries)]
+        explicit = total_pattern.search(segment)
+        if explicit:
+            value = cn2int(explicit.group(1))
+            if value is not None:
+                return value
+        matches = list(part_pattern.finditer(segment))
+        values = [cn2int(match.group(1)) for match in matches]
+        if not values or any(value is None for value in values):
+            continue
+        # 只有明細後緊接的合計才視為修車合計。
+        total = re.match(
+            rf"[\s，,、]*(?:共計|合計|總計|總共)\s*{amount}",
+            segment[matches[-1].end():],
+        )
+        if total:
+            value = cn2int(total.group(1))
+            if value is not None:
+                return value
+        return sum(values)
+    return None
+
+
 def extract_features(facts: str) -> dict[str, Any]:
     t = facts or ""
     f: dict[str, Any] = {}
@@ -113,6 +162,9 @@ def extract_features(facts: str) -> dict[str, Any]:
         f[k] = int(_has(t, kws))
     for k, kws in CLAIM_ITEMS.items():
         f[k] = _amount_after(t, kws) or 0
+    vehicle_amount = extract_vehicle_amount(t)
+    if vehicle_amount is not None:
+        f["claim_vehicle"] = vehicle_amount
     f["claim_amount"] = extract_claim_amount(t) or 0
     return f
 
