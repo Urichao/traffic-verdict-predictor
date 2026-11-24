@@ -1,6 +1,7 @@
 """特徵工程與中文法律斷詞（結合結構化傷勢/金額特徵 + jieba TF-IDF/SVD 文字特徵）。"""
 from __future__ import annotations
 
+import math
 import re
 from typing import Any
 
@@ -10,7 +11,33 @@ import pandas as pd
 from sklearn.decomposition import TruncatedSVD
 from sklearn.feature_extraction.text import TfidfVectorizer
 
-from parsing.extract_rules import NUMERIC_FEATURES, extract_features
+from api.depreciation import VEHICLE_SPECS, calculate_depreciation, extract_vehicle_parts_labor
+from parsing.extract_rules import (
+    CLAIM_ITEMS, DEEP_FEATURE_FIELDS, NUMERIC_FEATURES, extract_deep_features, extract_features,
+)
+from parsing.numbers import NUM_CHARS, cn2int, normalize_width
+
+# 既有欄位順序保留，舊模型及檢索索引仍可讀取。
+EXTRA_NUMERIC_FEATURES = (
+    *DEEP_FEATURE_FIELDS, "insurance_deduction", "claim_vehicle_parts",
+    "claim_vehicle_labor", "vehicle_age_years", "claim_vehicle_depreciated",
+)
+MODEL_NUMERIC_FEATURES = (*NUMERIC_FEATURES, *EXTRA_NUMERIC_FEATURES)
+EDUCATION_LEVELS = {
+    "小學": 1, "國小": 1, "國中": 1, "高中": 2, "高職": 2,
+    "專科": 3, "大專": 3, "大學": 3, "研究所": 4, "碩士": 4, "博士": 4,
+}
+OCCUPATION_LEVELS = {
+    "無業": 0, "待業": 0, "學生": 0, "退休": 0,
+    "司機": 1, "計程車司機": 1, "貨車司機": 1, "工人": 1,
+    "服務生": 1, "店員": 1, "廚師": 1, "公務員": 1,
+    "設計師": 2, "工程師": 2, "教師": 2, "老師": 2, "護理師": 2, "護士": 2, "醫師": 2,
+    "經理": 3, "主管": 3, "高階管理": 3,
+}
+INSURANCE_AMOUNT_RE = re.compile(
+    rf"(?:已領取?|已獲領|已受領|已收取)\s*(?:強制汽車責任保險|強制險|任意險|保險)"
+    rf"(?:理賠金?|給付|金)?\s*(?:共計|計|為)?\s*(?:新[臺台]幣)?\s*([{NUM_CHARS}]+)\s*元"
+)
 
 # 擴充台灣民事車禍判決常用專有名詞字典（對應參考專案 JudgmentPrediction 的 special_v3.txt 概念）
 LEGAL_TERMS = [
@@ -64,6 +91,19 @@ FEATURE_META: dict[str, tuple[str, tuple[str, ...]]] = {
     "v_turn": ("轉彎車違規", ("左轉", "右轉", "迴轉")),
     "v_no_license": ("無照駕駛", ("無照", "駕駛執照")),
     "v_no_helmet": ("未戴安全帽", ("未戴安全帽",)),
+    "plaintiff_education": ("原告學歷", ("學歷", "畢業", "肄業")),
+    "defendant_education": ("被告學歷", ("學歷", "畢業", "肄業")),
+    "plaintiff_occupation": ("原告職業", ("職業", "從事", "擔任")),
+    "defendant_occupation": ("被告職業", ("職業", "從事", "擔任")),
+    "plaintiff_monthly_income": ("原告月收入", ("月收入", "月薪")),
+    "defendant_monthly_income": ("被告月收入", ("月收入", "月薪")),
+    "plaintiff_rest_months": ("醫囑休養月數", ("醫囑", "休養", "休息")),
+    "plaintiff_labor_loss_ratio": ("勞動能力減損比例", ("勞動能力減損", "減少勞動能力")),
+    "insurance_deduction": ("已領保險理賠金額", ("強制險", "任意險", "理賠")),
+    "claim_vehicle_parts": ("車輛零件費", ("零件費", "零件")),
+    "claim_vehicle_labor": ("車輛修復工資", ("工資", "工錢", "烤漆")),
+    "vehicle_age_years": ("車齡", ("車齡", "使用期間")),
+    "claim_vehicle_depreciated": ("折舊後車損試算", ("折舊", "零件", "車齡")),
 }
 
 
@@ -76,67 +116,151 @@ def split_sentences(text: str) -> list[str]:
     return [s.strip() for s in re.split(r"[。；！？\n]+", text or "") if len(s.strip()) >= 4]
 
 
-class FeatureBuilder:
-    """把 DataFrame（結構化欄位 + facts_text）轉成模型輸入矩陣 X。"""
+def encode_profile(value: Any, levels: dict[str, int]) -> float:
+    if not isinstance(value, str):
+        return np.nan
+    name = normalize_width(value).strip().removesuffix("畢業").removesuffix("肄業")
+    return levels.get(name, np.nan)
 
-    def __init__(self, n_svd: int = 16):
+
+def _vehicle_depreciated(row: dict[str, Any]) -> int | None:
+    parts = row.get("claim_vehicle_parts")
+    labor = row.get("claim_vehicle_labor")
+    age = row.get("vehicle_age_years")
+    vehicle_type = row.get("vehicle_type")
+    if not (pd.notna(parts) and parts > 0 and pd.notna(age) and age >= 0 and vehicle_type in VEHICLE_SPECS):
+        return None
+    labor = labor if pd.notna(labor) else 0
+    total = row.get("claim_vehicle")
+    if pd.notna(total) and total > parts + labor:
+        return None
+    method = row.get("depreciation_method")
+    return calculate_depreciation(
+        vehicle_type=vehicle_type, vehicle_age_years=age, parts_cost=parts, labor_cost=labor,
+        method=method if isinstance(method, str) else "declining_balance",
+    )["approved_total"]
+
+
+def _insurance_amount(text: str) -> int | None:
+    amounts = {cn2int(m.group(1)) for m in INSURANCE_AMOUNT_RE.finditer(normalize_width(text))}
+    return next(iter(amounts)) if len(amounts) == 1 else None
+
+
+def prepare_training_features(df: pd.DataFrame) -> pd.DataFrame:
+    """以案情補齊舊 parquet 缺少的輸入欄位，保留既有結構化值。"""
+    prepared = df.copy()
+    texts = prepared["facts_text"].fillna("")
+    for key, extracted in pd.DataFrame(
+        [extract_deep_features(t) for t in texts], index=df.index
+    ).items():
+        prepared[key] = prepared[key].combine_first(extracted) if key in prepared else extracted
+    for key, extracted in pd.DataFrame(
+        [extract_vehicle_parts_labor(t) for t in texts], index=df.index
+    ).items():
+        prepared[key] = prepared[key].combine_first(extracted) if key in prepared else extracted
+    insurance = texts.map(_insurance_amount)
+    key = "insurance_deduction"
+    prepared[key] = prepared[key].combine_first(insurance) if key in prepared else insurance
+    insurance_paid = prepared.get("insurance_paid", pd.Series(0, index=df.index))
+    prepared["insurance_paid"] = insurance_paid.astype(float).mask(prepared[key].gt(0), 1)
+    vehicle = pd.Series([_vehicle_depreciated(row) for row in prepared.to_dict("records")], index=df.index)
+    key = "claim_vehicle_depreciated"
+    prepared[key] = prepared[key].combine_first(vehicle) if key in prepared else vehicle
+    return prepared
+
+
+class FeatureBuilder:
+    """把結構化欄位與 facts_text 轉成模型輸入矩陣。"""
+
+    def __init__(self, n_svd: int = 16, numeric_features=MODEL_NUMERIC_FEATURES):
         self.n_svd = n_svd
+        self.numeric_features = tuple(numeric_features)
         self.tfidf = TfidfVectorizer(max_features=3000, ngram_range=(1, 2), min_df=2)
         self.svd: TruncatedSVD | None = None
         self.feature_names_: list[str] = []
 
+    def numeric_feature_names(self) -> tuple[str, ...]:
+        return getattr(self, "numeric_features", tuple(NUMERIC_FEATURES))
+
     def fit_transform(self, df: pd.DataFrame) -> np.ndarray:
         num = self._numeric_matrix(df)
+        self.feature_names_ = list(self.numeric_feature_names())
+        self.svd = None
+        if len(df) < 2 or self.n_svd < 2:
+            return num.astype(np.float32)
+
         corpus = [cut_text(t) for t in df["facts_text"].fillna("")]
-        mat = self.tfidf.fit_transform(corpus)
-        k = min(self.n_svd, max(1, mat.shape[1] - 1), max(1, mat.shape[0] - 1))
-        if k >= 2:
-            self.svd = TruncatedSVD(n_components=k, random_state=42)
-            txt = self.svd.fit_transform(mat)
-        else:
-            txt = np.zeros((len(df), 0))
-        self.feature_names_ = list(NUMERIC_FEATURES) + [f"text_svd_{i}" for i in range(txt.shape[1])]
+        try:
+            mat = self.tfidf.fit_transform(corpus)
+        except ValueError as exc:
+            if "empty vocabulary" not in str(exc) and "After pruning, no terms remain" not in str(exc):
+                raise
+            return num.astype(np.float32)
+
+        k = min(self.n_svd, mat.shape[1] - 1, mat.shape[0] - 1)
+        if k < 2:
+            return num.astype(np.float32)
+        self.svd = TruncatedSVD(n_components=k, random_state=42)
+        txt = self.svd.fit_transform(mat)
+        self.feature_names_.extend(f"text_svd_{i}" for i in range(k))
         return np.hstack([num, txt]).astype(np.float32)
 
     def transform(self, df: pd.DataFrame) -> np.ndarray:
         num = self._numeric_matrix(df)
+        if self.svd is None:
+            return num.astype(np.float32)
         corpus = [cut_text(t) for t in df["facts_text"].fillna("")]
-        mat = self.tfidf.transform(corpus)
-        txt = self.svd.transform(mat) if self.svd is not None else np.zeros((len(df), 0))
+        txt = self.svd.transform(self.tfidf.transform(corpus))
         return np.hstack([num, txt]).astype(np.float32)
 
-    @staticmethod
-    def _numeric_matrix(df: pd.DataFrame) -> np.ndarray:
+    def _numeric_matrix(self, df: pd.DataFrame) -> np.ndarray:
         cols = []
-        for c in NUMERIC_FEATURES:
-            if c in df.columns:
-                cols.append(pd.to_numeric(df[c], errors="coerce").fillna(0.0).to_numpy())
-            else:
-                cols.append(np.zeros(len(df)))
+        for col in self.numeric_feature_names():
+            missing = 0.0 if col in NUMERIC_FEATURES else np.nan
+            if col not in df:
+                cols.append(np.full(len(df), missing))
+                continue
+            values = df[col]
+            if col.endswith("_education"):
+                values = values.map(lambda value: encode_profile(value, EDUCATION_LEVELS))
+            elif col.endswith("_occupation"):
+                values = values.map(lambda value: encode_profile(value, OCCUPATION_LEVELS))
+            values = pd.to_numeric(values, errors="coerce").replace([np.inf, -np.inf], np.nan)
+            if col in NUMERIC_FEATURES:
+                values = values.fillna(0.0)
+            cols.append(values.to_numpy(dtype=float, na_value=np.nan))
         return np.column_stack(cols)
 
 
 def merge_user_case(text: str, overrides: dict[str, Any] | None = None) -> dict[str, Any]:
-    """從使用者輸入的案情文字擷取特徵，並以結構化表單欄位（傷勢、各項請求金額等）覆寫或補充。"""
-    feats = extract_features(text or "")
+    """從事實擷取特徵，並以結構化表單欄位補充。"""
+    text = text or ""
+    feats = extract_features(text)
+    feats.update(extract_vehicle_parts_labor(text))
+    feats["insurance_deduction"] = _insurance_amount(text)
     overrides = overrides or {}
-    for k, v in overrides.items():
-        if v is None:
-            continue
-        if k in feats and isinstance(v, (int, float, bool)):
-            if isinstance(v, bool):
-                feats[k] = int(v)
-            elif v > 0 or k == "injury_level":
-                feats[k] = v
-    # 若使用者分項填寫了醫療、看護、工作損失、車損、慰撫金，但沒填總金額或分項加總大於總金額，自動校正總額
-    item_sum = sum(
-        int(feats.get(c, 0) or 0)
-        for c in (
-            "claim_medical", "claim_future_medical", "claim_care", "claim_transport",
-            "claim_work_loss", "claim_labor_loss", "claim_vehicle", "claim_funeral",
-            "claim_support", "claim_consolation",
-        )
-    )
+    for key, value in overrides.items():
+        if key in ("vehicle_type", "depreciation_method") or (
+            key in DEEP_FEATURE_FIELDS and key.endswith(("_education", "_occupation"))
+        ):
+            if isinstance(value, str) and value.strip():
+                feats[key] = value.strip()
+        elif isinstance(value, (int, float, bool)) and math.isfinite(value):
+            if key in EXTRA_NUMERIC_FEATURES and key != "claim_vehicle_depreciated" and value >= 0:
+                feats[key] = value
+            elif key in NUMERIC_FEATURES and (isinstance(value, bool) or value > 0 or key == "injury_level"):
+                feats[key] = int(value) if isinstance(value, bool) else value
+
+    repair_total = (feats["claim_vehicle_parts"] or 0) + (feats["claim_vehicle_labor"] or 0)
+    if repair_total and (not feats["claim_vehicle"] or any(
+        overrides.get(key) is not None for key in ("claim_vehicle_parts", "claim_vehicle_labor")
+    )) and not overrides.get("claim_vehicle"):
+        feats["claim_vehicle"] = repair_total
+    feats["claim_vehicle_depreciated"] = _vehicle_depreciated(feats)
+    if feats["insurance_deduction"]:
+        feats["insurance_paid"] = 1
+
+    item_sum = sum(int(feats.get(key, 0) or 0) for key in CLAIM_ITEMS)
     if item_sum > feats.get("claim_amount", 0):
         feats["claim_amount"] = item_sum
     if overrides.get("injury_terms"):
@@ -144,5 +268,5 @@ def merge_user_case(text: str, overrides: dict[str, Any] | None = None) -> dict[
         if isinstance(terms, str):
             terms = [t.strip() for t in re.split(r"[、,，\s]+", terms) if t.strip()]
         feats["injury_terms"] = sorted(set(list(feats.get("injury_terms", [])) + list(terms)))
-    feats["facts_text"] = text or ""
+    feats["facts_text"] = text
     return feats

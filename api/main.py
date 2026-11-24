@@ -194,13 +194,12 @@ def _overrides_from_req(req: PredictRequest) -> dict[str, Any]:
         "claim_medical", "claim_future_medical", "claim_care", "claim_transport",
         "claim_work_loss", "claim_labor_loss", "claim_vehicle",
         "claim_funeral", "claim_support", "claim_consolation", "claim_amount",
+        "insurance_deduction", "vehicle_type", "vehicle_age_years", "depreciation_method",
+        "claim_vehicle_parts", "claim_vehicle_labor", "plaintiff_education",
+        "plaintiff_occupation", "plaintiff_monthly_income", "plaintiff_rest_months",
+        "plaintiff_labor_loss_ratio",
     )
     ov: dict[str, Any] = {k: getattr(req, k) for k in keys if getattr(req, k) is not None}
-    # 若使用者填寫了修車零件與工資，但未填修車總額，自動加總
-    if ov.get("claim_vehicle") is None and ((req.claim_vehicle_parts or 0) > 0 or (req.claim_vehicle_labor or 0) > 0):
-        ov["claim_vehicle"] = int(req.claim_vehicle_parts or 0) + int(req.claim_vehicle_labor or 0)
-    if (req.insurance_deduction or 0) > 0:
-        ov["insurance_paid"] = True
     return ov
 
 
