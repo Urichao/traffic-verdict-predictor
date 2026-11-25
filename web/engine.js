@@ -239,8 +239,9 @@
 
   function evalTree(node, x) {
     while (Array.isArray(node)) {
-      const featVal = x[node[0]] ?? 0;
-      node = featVal <= node[1] ? node[2] : node[3];
+      const value = x[node[0]];
+      const left = Number.isNaN(value) && node.length > 4 ? node[4] : (value || 0) <= node[1];
+      node = left ? node[2] : node[3];
     }
     return node;
   }
@@ -547,9 +548,43 @@
     const { bundle, cases } = await ensureLoaded();
     const feats = extractFeatures(payload);
     const numCols = bundle.numeric_features;
+    const nullable = new Set(bundle.nullable_features || []);
+    if (nullable.size) {
+      const fromText = extractClientFeatures(payload.text);
+      for (const key of nullable) {
+        if (key !== "claim_vehicle_depreciated") {
+          feats[key] = payload[key] ?? fromText[key];
+        }
+      }
+      const type = payload.vehicle_type;
+      const parts = feats.claim_vehicle_parts || 0;
+      const labor = feats.claim_vehicle_labor || 0;
+      if (parts + labor > 0 && !feats.claim_vehicle) {
+        feats.claim_vehicle = parts + labor;
+        feats.claim_amount = Math.max(feats.claim_amount, Object.keys(CLAIM_ITEMS)
+          .reduce((sum, key) => sum + (feats[key] || 0), 0));
+      }
+      if (parts > 0 && feats.vehicle_age_years != null && Object.hasOwn(VEHICLE_SPECS, type)
+          && feats.claim_vehicle <= parts + labor) {
+        feats.claim_vehicle_depreciated = calculateDepreciation({
+          vehicle_type: type, vehicle_age_years: feats.vehicle_age_years,
+          parts_cost: parts, labor_cost: labor, method: payload.depreciation_method,
+        }).approved_total;
+      }
+    }
+    // 延續靜態引擎的文字維度近似，持續以 0 補齊。
     const x = new Array(numCols.length + 16).fill(0);
     for (let i = 0; i < numCols.length; i++) {
-      x[i] = Number(feats[numCols[i]] || 0);
+      const col = numCols[i];
+      let value = feats[col];
+      const levels = col.endsWith("_education") ? bundle.education_levels
+        : col.endsWith("_occupation") ? bundle.occupation_levels : null;
+      if (levels && typeof value === "string") {
+        const name = value.normalize("NFKC").trim().replace(/(?:畢業|肄業)$/, "");
+        value = Object.hasOwn(levels, name) ? levels[name] : undefined;
+      }
+      x[i] = value == null ? (nullable.has(col) ? NaN : 0)
+        : nullable.size ? Math.fround(value) : Number(value);
     }
 
     // 1. 勝敗訴分類
@@ -567,7 +602,9 @@
     // 2. 迴歸預測
     const rawRatio = Math.min(1, Math.max(0, evalReg(bundle.ratio_trees, x)));
     const rawFault = Math.min(1, Math.max(0, evalReg(bundle.fault_trees, x)));
-    const rawConsol = Math.max(0, evalReg(bundle.consol_trees, x));
+    const consolPrediction = evalReg(bundle.consol_trees, x);
+    const rawConsol = Math.max(0, bundle.consolation_target_transform === "log1p"
+      ? Math.expm1(consolPrediction) : consolPrediction);
 
     if (feats.settled_or_no_fault && !feats.has_criminal && !feats.has_appraisal) {
       label = "原告敗訴";

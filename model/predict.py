@@ -13,8 +13,8 @@ import shap
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import config  # noqa: E402
 from model.features import FEATURE_META, merge_user_case  # noqa: E402
-from model.train import MODEL_BUNDLE_PATH  # noqa: E402
-from parsing.extract_rules import INJURY_LEVEL_NAMES, NUMERIC_FEATURES  # noqa: E402
+from model.train import MODEL_BUNDLE_PATH, restore_consolation  # noqa: E402
+from parsing.extract_rules import INJURY_LEVEL_NAMES  # noqa: E402
 
 
 class VerdictPredictor:
@@ -25,6 +25,7 @@ class VerdictPredictor:
         self.reg_ratio = self.bundle["reg_ratio"]
         self.reg_fault = self.bundle["reg_fault"]
         self.reg_consol = self.bundle["reg_consol"]
+        self.consolation_target_transform = self.bundle.get("consolation_target_transform", "identity")
         self.han = self.bundle["han"]
         self.metrics = self.bundle.get("metrics", {})
         self.explainer = shap.TreeExplainer(self.reg_ratio)
@@ -45,7 +46,9 @@ class VerdictPredictor:
         # 2. 判賠比例、過失比例、精神慰撫金預測
         raw_ratio = float(np.clip(self.reg_ratio.predict(X)[0], 0.0, 1.0))
         raw_fault = float(np.clip(self.reg_fault.predict(X)[0], 0.0, 1.0))
-        raw_consol = float(max(0.0, self.reg_consol.predict(X)[0]))
+        raw_consol = float(restore_consolation(
+            self.reg_consol.predict(X), self.consolation_target_transform
+        )[0])
 
         if label == "原告敗訴":
             pred_ratio = 0.0
@@ -89,9 +92,9 @@ class VerdictPredictor:
     ) -> list[dict[str, Any]]:
         """只挑出本案實際發生/填寫之特徵，依 |SHAP| 排序並轉為 0~1 相對權重與原文對應詞。"""
         active = []
-        for i, col in enumerate(NUMERIC_FEATURES):
+        for i, col in enumerate(self.fb.numeric_feature_names()):
             val = feats.get(col, 0)
-            if not val:
+            if val is None or (not val and not col.endswith("_occupation")):
                 continue
             sv = float(shap_vals[i])
             if abs(sv) < 1e-4:

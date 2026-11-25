@@ -21,8 +21,10 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import config  # noqa: E402
-from model.features import FEATURE_META  # noqa: E402
-from parsing.extract_rules import INJURY_LEVEL_NAMES, NUMERIC_FEATURES  # noqa: E402
+from model.features import (  # noqa: E402
+    EDUCATION_LEVELS, FEATURE_META, OCCUPATION_LEVELS, EXTRA_NUMERIC_FEATURES,
+)
+from parsing.extract_rules import INJURY_LEVEL_NAMES  # noqa: E402
 from retrieval.index import INDEX_PATH, format_case_id, summarize_case  # noqa: E402
 
 WEB_DIR = config.ROOT / "web"
@@ -30,16 +32,19 @@ WEB_DIR = config.ROOT / "web"
 
 def _compact_tree(node: dict):
     """將 LightGBM dump_model 的樹節點轉為極精簡陣列：
-    內部節點: [split_feature, threshold, left_subtree, right_subtree]
-    葉節點:   round(leaf_value, 6)
+    內部節點: [split_feature, threshold, left_subtree, right_subtree, default_left]
+    葉節點:   leaf_value
     """
     if "leaf_value" in node:
-        return round(float(node["leaf_value"]), 6)
+        return float(node["leaf_value"])
+    threshold = float(node["threshold"])
+    nan_goes_left = node["default_left"] if node["missing_type"] in ("NaN", "Zero") else 0.0 <= threshold
     return [
         int(node["split_feature"]),
-        round(float(node["threshold"]), 5),
+        threshold,
         _compact_tree(node["left_child"]),
         _compact_tree(node["right_child"]),
+        bool(nan_goes_left),
     ]
 
 
@@ -52,6 +57,7 @@ def export_all(cloud_key: str = "") -> None:
     bundle = joblib.load(config.ARTIFACT_DIR / "predictor.joblib")
     idx_data = joblib.load(INDEX_PATH)
 
+    numeric_features = bundle["feature_builder"].numeric_feature_names()
     clf = bundle["clf"]
     reg_ratio = bundle["reg_ratio"]
     reg_fault = bundle["reg_fault"]
@@ -86,7 +92,11 @@ def export_all(cloud_key: str = "") -> None:
     model_json = {
         "metrics": metrics,
         "classes": list(clf.classes_),
-        "numeric_features": list(NUMERIC_FEATURES),
+        "numeric_features": list(numeric_features),
+        "nullable_features": [col for col in numeric_features if col in EXTRA_NUMERIC_FEATURES],
+        "education_levels": EDUCATION_LEVELS,
+        "occupation_levels": OCCUPATION_LEVELS,
+        "consolation_target_transform": bundle.get("consolation_target_transform", "identity"),
         "injury_level_names": {str(k): v for k, v in INJURY_LEVEL_NAMES.items()},
         "feature_meta": {k: [v[0], list(v[1])] for k, v in FEATURE_META.items()},
         "clf_trees": _dump_booster(clf),
