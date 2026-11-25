@@ -2,11 +2,11 @@
   "total_cases": 12174,
   "train_cases": 9739,
   "test_cases": 2435,
-  "lgbm_accuracy": 0.8353,
-  "lgbm_macro_f1": 0.6735,
+  "lgbm_accuracy": 0.8127,
+  "lgbm_macro_f1": 0.7131,
+  "award_ratio_mae": 0.191,
+  "fault_ratio_mae": 0.0343,
+  "consolation_mae": 116919.9,
   "han_baseline_accuracy": 0.5774,
-  "han_baseline_macro_f1": 0.5168,
-  "award_ratio_mae": 0.193,
-  "fault_ratio_mae": 0.0346,
-  "consolation_mae": 147801.0
+  "han_baseline_macro_f1": 0.5168
 }

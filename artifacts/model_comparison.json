@@ -1,0 +1,92 @@
+{
+  "split": {
+    "random_state": 42,
+    "test_size": 0.2,
+    "train_outcomes": {
+      "部分勝訴": 5765,
+      "原告勝訴": 3317,
+      "原告敗訴": 657
+    },
+    "test_outcomes": {
+      "部分勝訴": 1442,
+      "原告勝訴": 829,
+      "原告敗訴": 164
+    }
+  },
+  "class_weight_exponent": 0.75,
+  "class_weight_cv_macro_f1": {
+    "0.0": 0.6784,
+    "0.25": 0.6983,
+    "0.5": 0.7094,
+    "0.75": 0.7104,
+    "1.0": 0.6883
+  },
+  "before": {
+    "lgbm_accuracy": 0.8366,
+    "lgbm_macro_f1": 0.676,
+    "award_ratio_mae": 0.1925,
+    "fault_ratio_mae": 0.0348,
+    "consolation_mae": 135831.93,
+    "class_f1": {
+      "原告勝訴": 0.8311,
+      "部分勝訴": 0.8769,
+      "原告敗訴": 0.32
+    },
+    "regression_test_cases": {
+      "award_ratio_mae": 2030,
+      "fault_ratio_mae": 2159,
+      "consolation_mae": 194
+    }
+  },
+  "after": {
+    "lgbm_accuracy": 0.8127,
+    "lgbm_macro_f1": 0.7131,
+    "award_ratio_mae": 0.191,
+    "fault_ratio_mae": 0.0343,
+    "consolation_mae": 116919.9,
+    "class_f1": {
+      "原告勝訴": 0.8344,
+      "部分勝訴": 0.8579,
+      "原告敗訴": 0.447
+    },
+    "regression_test_cases": {
+      "award_ratio_mae": 2030,
+      "fault_ratio_mae": 2159,
+      "consolation_mae": 194
+    }
+  },
+  "without_class_weights_macro_f1": 0.6778,
+  "without_log_transform_consolation_mae": 134042.6,
+  "new_feature_counts": {
+    "train": {
+      "plaintiff_education": 9,
+      "defendant_education": 14,
+      "plaintiff_occupation": 8,
+      "defendant_occupation": 9,
+      "plaintiff_monthly_income": 81,
+      "defendant_monthly_income": 5,
+      "plaintiff_rest_months": 4,
+      "plaintiff_labor_loss_ratio": 29,
+      "insurance_deduction": 68,
+      "claim_vehicle_parts": 2718,
+      "claim_vehicle_labor": 2549,
+      "vehicle_age_years": 385,
+      "claim_vehicle_depreciated": 234
+    },
+    "test": {
+      "plaintiff_education": 3,
+      "defendant_education": 3,
+      "plaintiff_occupation": 1,
+      "defendant_occupation": 1,
+      "plaintiff_monthly_income": 20,
+      "defendant_monthly_income": 2,
+      "plaintiff_rest_months": 2,
+      "plaintiff_labor_loss_ratio": 10,
+      "insurance_deduction": 16,
+      "claim_vehicle_parts": 681,
+      "claim_vehicle_labor": 634,
+      "vehicle_age_years": 101,
+      "claim_vehicle_depreciated": 62
+    }
+  }
+}
